@@ -15,6 +15,7 @@ members = [
     "core/storage",
     "core/config",
     "core/domain",
+    "core/plugin-runtime",
 ]
 
 [workspace.package]

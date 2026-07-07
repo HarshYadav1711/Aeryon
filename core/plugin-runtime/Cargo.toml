@@ -1,0 +1,11 @@
+[package]
+name = "aeryon-plugin-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Plugin runtime infrastructure for the Aeryon perception platform"
+rust-version.workspace = true
+
+[lints]
+workspace = true

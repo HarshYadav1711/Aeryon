@@ -47,6 +47,10 @@ name = "aeryon-perception"
 version = "0.1.0"
 
 [[package]]
+name = "aeryon-plugin-runtime"
+version = "0.1.0"
+
+[[package]]
 name = "aeryon-plugins"
 version = "0.1.0"
 
