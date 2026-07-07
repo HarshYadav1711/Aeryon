@@ -1,0 +1,94 @@
+# Build artifacts
+target/
+build/
+dist/
+out/
+cmake-build-*/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Rust
+**/*.rs.bk
+
+# C++
+*.pch
+*.ilk
+*.pdb
+*.exp
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Node / frontend
+node_modules/
+.npm/
+.pnp.*
+*.tsbuildinfo
+.next/
+.nuxt/
+.parcel-cache/
+coverage/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and diagnostics
+*.log
+logs/
+
+# Datasets (local copies; structure is tracked, contents are not)
+datasets/**/*
+!datasets/.gitkeep
+!datasets/**/.gitkeep
+!datasets/**/README.md
+
+# Benchmark and test output
+benchmarks/results/
+tests/output/
+*.prof
+*.profraw
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
