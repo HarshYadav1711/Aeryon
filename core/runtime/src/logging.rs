@@ -17,18 +17,15 @@ pub fn init_logging(config: &LoggingConfig) -> Result<(), LoggingError> {
 
     let level = config.level.clone();
 
-    LOGGING
-        .get_or_init(|| {
-            let filter =
-                EnvFilter::try_new(level.as_str()).map_err(|_| LoggingError::InvalidLevel)?;
+    *LOGGING.get_or_init(|| {
+        let filter = EnvFilter::try_new(level.as_str()).map_err(|_| LoggingError::InvalidLevel)?;
 
-            tracing_subscriber::fmt()
-                .with_env_filter(filter)
-                .with_target(false)
-                .try_init()
-                .map_err(|_| LoggingError::AlreadyInitialized)
-        })
-        .clone()
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(false)
+            .try_init()
+            .map_err(|_| LoggingError::AlreadyInitialized)
+    })
 }
 
 fn validate_level(level: &str) -> Result<(), LoggingError> {
