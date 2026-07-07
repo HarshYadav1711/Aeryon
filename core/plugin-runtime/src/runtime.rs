@@ -228,9 +228,9 @@ mod tests {
 
         fn initialize(&mut self) -> Result<(), PluginError> {
             if self.fail_init {
-                return Err(PluginError::lifecycle(LifecycleError::InitializationFailed(
-                    self.id.clone(),
-                )));
+                return Err(PluginError::lifecycle(
+                    LifecycleError::InitializationFailed(self.id.clone()),
+                ));
             }
             self.initialized = true;
             Ok(())
@@ -292,7 +292,9 @@ mod tests {
         plugin.fail_init = true;
         let mut runtime = PluginRuntime::new();
         let id = PluginId::new("broken");
-        runtime.register(Box::new(plugin)).expect("register succeeds");
+        runtime
+            .register(Box::new(plugin))
+            .expect("register succeeds");
         let error = runtime.start(&id).expect_err("start fails");
         assert!(matches!(
             error,

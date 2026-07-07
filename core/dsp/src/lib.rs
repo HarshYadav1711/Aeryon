@@ -1,4 +1,4 @@
-﻿//! DSP orchestration for the Aeryon perception platform.
+//! DSP orchestration for the Aeryon perception platform.
 
 /// Subsystem identifier.
 pub const ID: &str = "dsp";

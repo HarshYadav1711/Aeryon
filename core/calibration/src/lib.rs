@@ -1,4 +1,4 @@
-﻿//! Sensor correction and normalization.
+//! Sensor correction and normalization.
 
 /// Subsystem identifier.
 pub const ID: &str = "calibration";

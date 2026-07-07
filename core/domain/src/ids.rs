@@ -32,7 +32,10 @@ macro_rules! define_id {
 
 define_id!(SensorId, "Identifies a physical or logical sensor.");
 define_id!(FrameId, "Identifies a single acquired sensor frame.");
-define_id!(ObservationId, "Identifies a structured observation derived from sensor data.");
+define_id!(
+    ObservationId,
+    "Identifies a structured observation derived from sensor data."
+);
 define_id!(MissionId, "Identifies a mission or operational context.");
 define_id!(EntityId, "Identifies an entity tracked in the world model.");
 

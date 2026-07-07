@@ -1,4 +1,4 @@
-﻿//! Multi-sensor fusion for the Aeryon perception platform.
+//! Multi-sensor fusion for the Aeryon perception platform.
 
 /// Subsystem identifier.
 pub const ID: &str = "perception";

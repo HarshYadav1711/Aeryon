@@ -1,4 +1,4 @@
-﻿//! Event bus for the Aeryon perception platform.
+//! Event bus for the Aeryon perception platform.
 
 /// Subsystem identifier.
 pub const ID: &str = "events";

@@ -174,7 +174,10 @@ mod tests {
         let mut registry = PluginRegistry::new();
         let id = PluginId::new("alpha");
         registry
-            .register(Box::new(TestPlugin::new("alpha", vec![Capability::Storage])))
+            .register(Box::new(TestPlugin::new(
+                "alpha",
+                vec![Capability::Storage],
+            )))
             .expect("register succeeds");
         assert!(registry.lookup(&id).is_some());
     }

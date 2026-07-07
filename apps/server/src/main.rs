@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc;
 
-use aeryon_runtime::{banner, AppConfig, Runtime};
+use aeryon_runtime::{AppConfig, Runtime, banner};
 
 fn main() {
     if let Err(error) = run() {

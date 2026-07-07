@@ -2,8 +2,8 @@
 
 use core::fmt;
 
-use crate::plugin::PluginId;
 use crate::plugin::LifecycleState;
+use crate::plugin::PluginId;
 
 /// Errors produced by plugin factories during construction.
 #[derive(Debug, Clone, PartialEq, Eq)]

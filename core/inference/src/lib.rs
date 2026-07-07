@@ -1,4 +1,4 @@
-﻿//! Model execution for the Aeryon perception platform.
+//! Model execution for the Aeryon perception platform.
 
 /// Subsystem identifier.
 pub const ID: &str = "inference";

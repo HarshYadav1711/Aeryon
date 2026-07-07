@@ -160,10 +160,7 @@ mod tests {
     #[test]
     fn metadata_stores_typed_values() {
         let mut metadata = Metadata::new();
-        metadata.insert(
-            MetadataKey::Sequence,
-            MetadataValue::Integer(9),
-        );
+        metadata.insert(MetadataKey::Sequence, MetadataValue::Integer(9));
         assert_eq!(
             metadata.get(&MetadataKey::Sequence),
             Some(&MetadataValue::Integer(9))

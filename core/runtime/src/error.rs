@@ -93,7 +93,10 @@ impl fmt::Display for RuntimeError {
             Self::Logging(error) => write!(f, "{error}"),
             Self::Plugin(error) => write!(f, "plugin runtime error: {error}"),
             Self::InvalidState { expected, actual } => {
-                write!(f, "invalid runtime state: expected {expected}, got {actual}")
+                write!(
+                    f,
+                    "invalid runtime state: expected {expected}, got {actual}"
+                )
             }
         }
     }

@@ -1,4 +1,4 @@
-﻿//! Persistence layer for the Aeryon perception platform.
+//! Persistence layer for the Aeryon perception platform.
 
 /// Subsystem identifier.
 pub const ID: &str = "storage";

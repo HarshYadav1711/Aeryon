@@ -1,4 +1,4 @@
-﻿//! Feature extraction for the Aeryon perception platform.
+//! Feature extraction for the Aeryon perception platform.
 
 /// Subsystem identifier.
 pub const ID: &str = "features";

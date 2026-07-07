@@ -3,7 +3,7 @@ use std::process;
 
 use clap::{Parser, Subcommand};
 
-use aeryon_runtime::{banner, AppConfig, RuntimeHealth, version};
+use aeryon_runtime::{AppConfig, RuntimeHealth, banner, version};
 
 #[derive(Parser)]
 #[command(name = "aeryon-cli", version, about = "Aeryon command-line interface")]

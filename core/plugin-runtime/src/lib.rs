@@ -15,9 +15,7 @@ pub mod registry;
 pub mod runtime;
 
 pub use capability::Capability;
-pub use errors::{
-    FactoryError, LifecycleError, LoadError, PluginError, RegistryError,
-};
+pub use errors::{FactoryError, LifecycleError, LoadError, PluginError, RegistryError};
 pub use loader::{PluginFactory, PluginLoader};
 pub use metadata::{PluginMetadata, Version};
 pub use plugin::{HealthStatus, LifecycleState, Plugin, PluginId};

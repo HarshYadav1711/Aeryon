@@ -1,4 +1,4 @@
-﻿//! World model state for the Aeryon perception platform.
+//! World model state for the Aeryon perception platform.
 
 /// Subsystem identifier.
 pub const ID: &str = "world";

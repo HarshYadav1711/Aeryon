@@ -47,10 +47,9 @@ impl PluginLoader {
 
         for (index, factory) in self.factories.iter().enumerate() {
             let expected_id = factory.plugin_id().clone();
-            let plugin = factory.create().map_err(|source| LoadError::Factory {
-                index,
-                source,
-            })?;
+            let plugin = factory
+                .create()
+                .map_err(|source| LoadError::Factory { index, source })?;
 
             if plugin.id() != &expected_id {
                 return Err(LoadError::Factory {

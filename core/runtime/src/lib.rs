@@ -13,7 +13,7 @@ pub mod logging;
 pub mod runtime;
 
 pub use config::{
-    AppConfig, ApplicationConfig, LoggingConfig, PluginsConfig, RuntimeSettings, DEFAULT_CONFIG,
+    AppConfig, ApplicationConfig, DEFAULT_CONFIG, LoggingConfig, PluginsConfig, RuntimeSettings,
 };
 pub use context::AppContext;
 pub use error::{ConfigError, LoggingError, RuntimeError};

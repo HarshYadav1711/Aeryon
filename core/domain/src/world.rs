@@ -114,8 +114,8 @@ mod tests {
     use super::*;
     use crate::entity::{Entity, EntityKind};
     use crate::ids::EntityId;
-    use crate::observation::{Observation, ObservationValue};
     use crate::ids::{FrameId, ObservationId, SensorId};
+    use crate::observation::{Observation, ObservationValue};
 
     struct StaticWorld {
         state: WorldState,
