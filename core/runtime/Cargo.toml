@@ -1,0 +1,18 @@
+[package]
+name = "aeryon-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Application runtime for the Aeryon perception platform"
+rust-version.workspace = true
+
+[dependencies]
+aeryon-plugin-runtime = { path = "../plugin-runtime" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

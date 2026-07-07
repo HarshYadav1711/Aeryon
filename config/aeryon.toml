@@ -1,0 +1,13 @@
+[application]
+name = "aeryon"
+environment = "development"
+
+[logging]
+level = "info"
+
+[plugins]
+enabled = true
+autoload = false
+
+[runtime]
+shutdown_timeout_secs = 10

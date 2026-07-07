@@ -11,8 +11,8 @@ name = "aeryon-cli"
 path = "src/main.rs"
 
 [dependencies]
-aeryon-config = { path = "../../core/config" }
-aeryon-plugins = { path = "../../core/plugins" }
+aeryon-runtime = { path = "../../core/runtime" }
+clap = { version = "4", features = ["derive"] }
 
 [lints]
 workspace = true
