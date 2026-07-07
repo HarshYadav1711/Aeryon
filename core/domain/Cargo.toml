@@ -1,0 +1,11 @@
+[package]
+name = "aeryon-domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Core domain contracts for the Aeryon perception platform"
+rust-version.workspace = true
+
+[lints]
+workspace = true

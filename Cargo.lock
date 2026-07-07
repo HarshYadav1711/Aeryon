@@ -23,6 +23,10 @@ name = "aeryon-config"
 version = "0.1.0"
 
 [[package]]
+name = "aeryon-domain"
+version = "0.1.0"
+
+[[package]]
 name = "aeryon-dsp"
 version = "0.1.0"
 
