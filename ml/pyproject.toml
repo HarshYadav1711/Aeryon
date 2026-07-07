@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aeryon-ml"
+version = "0.1.0"
+description = "Machine learning toolkit for the Aeryon perception platform"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "Aeryon Contributors" }]
+
+[project.scripts]
+aeryon-ml = "aeryon_ml.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/training", "src/evaluation", "src/datasets", "src/export", "src/aeryon_ml"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "README.md", "pyproject.toml"]

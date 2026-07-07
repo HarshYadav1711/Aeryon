@@ -1,0 +1,18 @@
+[package]
+name = "aeryon-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "HTTP service entry point for the Aeryon perception platform"
+
+[[bin]]
+name = "aeryon-server"
+path = "src/main.rs"
+
+[dependencies]
+aeryon-config = { path = "../../core/config" }
+aeryon-events = { path = "../../core/events" }
+
+[lints]
+workspace = true

@@ -5,8 +5,8 @@ This document outlines planned milestones for Aeryon. Items are ordered roughly 
 ## Phase 0 — Foundation (current)
 
 - [x] Repository structure and documentation
-- [ ] Build system and CI pipeline
-- [ ] Core crate/workspace layout (Rust)
+- [x] Build system and CI pipeline
+- [x] Core crate/workspace layout (Rust)
 - [ ] Configuration schema
 - [ ] Logging and tracing infrastructure
 

@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/server",
+    "apps/cli",
+    "core/acquisition",
+    "core/calibration",
+    "core/dsp",
+    "core/features",
+    "core/inference",
+    "core/perception",
+    "core/world",
+    "core/events",
+    "core/plugins",
+    "core/storage",
+    "core/config",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["Aeryon Contributors"]
+repository = "https://github.com/aeryon/aeryon"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "allow", priority = -1 }

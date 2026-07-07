@@ -1,0 +1,10 @@
+﻿[package]
+name = "aeryon-world"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "World model state for the Aeryon perception platform"
+
+[lints]
+workspace = true

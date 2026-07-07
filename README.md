@@ -64,11 +64,8 @@ native/
     ffi/             Foreign-function interface bindings
 
 ml/
-    datasets/        Dataset schemas and loaders
-    training/        Training pipelines
-    evaluation/      Metrics and benchmarks
-    notebooks/       Exploratory analysis
-    export/          Model export for inference runtime
+    src/               Python packages (datasets, training, evaluation, export)
+    notebooks/         Exploratory analysis
 
 frontend/            Web UI
 
@@ -92,7 +89,34 @@ scripts/             Build, CI, and maintenance scripts
 
 ## Current Status
 
-This repository contains project scaffolding only. No perception algorithms, DSP kernels, ML models, or application logic have been implemented yet. See [ROADMAP.md](ROADMAP.md) for planned milestones.
+The repository is a buildable multi-language workspace. Subsystems expose minimal public APIs; perception algorithms, DSP kernels, and ML pipelines are not implemented yet. See [ROADMAP.md](ROADMAP.md) for planned milestones.
+
+## Development
+
+### Prerequisites
+
+- Rust stable (edition 2024) with `rustfmt` and `clippy` components
+- CMake 3.16+
+- Python 3.11+
+- Node.js 22+
+
+### Commands
+
+Run from the repository root unless noted.
+
+| Task | Command |
+|------|---------|
+| Rust tests | `cargo test` or `scripts/cargo-test.ps1` |
+| Rust format | `cargo fmt --all` or `scripts/cargo-fmt.ps1` |
+| Rust lint | `cargo clippy --workspace --all-targets -- -D warnings` |
+| C++ build and test | `scripts/cmake-build.ps1` |
+| Python install | `python -m pip install ./ml` or `scripts/python-install.ps1` |
+| ML CLI | `aeryon-ml` |
+| Frontend install | `cd frontend && npm install` |
+| Frontend dev server | `cd frontend && npm run dev` |
+| Verify all components | `scripts/verify-all.ps1` |
+
+Unix equivalents are available under `scripts/*.sh`.
 
 ## License
 

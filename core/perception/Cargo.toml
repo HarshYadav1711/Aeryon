@@ -1,0 +1,10 @@
+﻿[package]
+name = "aeryon-perception"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Multi-sensor fusion for the Aeryon perception platform"
+
+[lints]
+workspace = true
