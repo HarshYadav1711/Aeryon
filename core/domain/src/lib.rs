@@ -20,7 +20,8 @@ pub mod world;
 pub use entity::{Entity, EntityKind};
 pub use event::{
     EntityRemoved, EntityUpserted, Event, EventPublisher, EventSubscriber, FrameReceived,
-    ObservationRecorded, RelationshipUpserted, StageCompleted, WorldSnapshotCommitted,
+    ObservationRecorded, RelationshipUpserted, SensorFailed, SensorFailureKind, SensorStarted,
+    SensorStopped, StageCompleted, WorldSnapshotCommitted,
 };
 pub use frame::{Frame, FrameMetadata, Metadata, MetadataKey, MetadataValue};
 pub use ids::{EntityId, FrameId, MissionId, ObservationId, SensorId};

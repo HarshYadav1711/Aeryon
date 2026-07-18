@@ -9,6 +9,8 @@ pub enum RuntimeHealth {
     Starting,
     /// Runtime is active.
     Running,
+    /// Runtime is operational with reduced confidence.
+    Degraded,
     /// Runtime is shutting down.
     Stopping,
     /// Runtime has stopped cleanly.
@@ -22,6 +24,7 @@ impl fmt::Display for RuntimeHealth {
         let label = match self {
             Self::Starting => "starting",
             Self::Running => "running",
+            Self::Degraded => "degraded",
             Self::Stopping => "stopping",
             Self::Stopped => "stopped",
             Self::Failed => "failed",
@@ -37,6 +40,7 @@ mod tests {
     #[test]
     fn health_states_have_stable_labels() {
         assert_eq!(RuntimeHealth::Running.to_string(), "running");
+        assert_eq!(RuntimeHealth::Degraded.to_string(), "degraded");
         assert_eq!(RuntimeHealth::Failed.to_string(), "failed");
     }
 }

@@ -17,6 +17,7 @@ members = [
     "core/domain",
     "core/plugin-runtime",
     "core/runtime",
+    "plugins/synthetic-sensor",
 ]
 
 [workspace.package]

@@ -11,3 +11,14 @@ autoload = false
 
 [runtime]
 shutdown_timeout_secs = 10
+first_frame_timeout_ms = 2000
+
+[synthetic_sensor]
+enabled = true
+interval_ms = 100
+samples_per_frame = 64
+sample_rate_hz = 1000.0
+primary_frequency_hz = 10.0
+secondary_frequency_hz = 37.0
+secondary_amplitude = 0.25
+log_every_n_frames = 10

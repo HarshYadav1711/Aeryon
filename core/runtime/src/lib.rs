@@ -10,6 +10,7 @@ pub mod context;
 pub mod error;
 pub mod health;
 pub mod logging;
+pub mod metrics;
 pub mod runtime;
 
 pub use config::{
@@ -18,6 +19,7 @@ pub use config::{
 pub use context::AppContext;
 pub use error::{ConfigError, LoggingError, RuntimeError};
 pub use health::RuntimeHealth;
+pub use metrics::RuntimeMetrics;
 pub use runtime::Runtime;
 
 /// Returns the runtime crate version.

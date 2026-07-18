@@ -166,6 +166,27 @@ impl fmt::Display for PluginError {
     }
 }
 
+impl std::error::Error for FactoryError {}
+impl std::error::Error for LoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Factory { source, .. } => Some(source),
+            Self::Registration { source, .. } => Some(source),
+        }
+    }
+}
+impl std::error::Error for RegistryError {}
+impl std::error::Error for LifecycleError {}
+impl std::error::Error for PluginError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Registry(error) => Some(error),
+            Self::Load(error) => Some(error),
+            Self::Lifecycle(error) => Some(error),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

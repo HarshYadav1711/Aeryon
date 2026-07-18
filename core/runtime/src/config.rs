@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::Path;
 
+use aeryon_synthetic_sensor::SyntheticSensorConfig;
 use serde::Deserialize;
 
 use crate::error::ConfigError;
@@ -21,6 +22,17 @@ autoload = false
 
 [runtime]
 shutdown_timeout_secs = 10
+first_frame_timeout_ms = 2000
+
+[synthetic_sensor]
+enabled = true
+interval_ms = 100
+samples_per_frame = 64
+sample_rate_hz = 1000.0
+primary_frequency_hz = 10.0
+secondary_frequency_hz = 37.0
+secondary_amplitude = 0.25
+log_every_n_frames = 10
 "#;
 
 /// Top-level application configuration.
@@ -34,6 +46,9 @@ pub struct AppConfig {
     pub plugins: PluginsConfig,
     /// Runtime behavior configuration.
     pub runtime: RuntimeSettings,
+    /// Synthetic sensor configuration.
+    #[serde(default)]
+    pub synthetic_sensor: SyntheticSensorConfig,
 }
 
 /// Application metadata and environment settings.
@@ -66,6 +81,13 @@ pub struct PluginsConfig {
 pub struct RuntimeSettings {
     /// Graceful shutdown timeout in seconds.
     pub shutdown_timeout_secs: u64,
+    /// Maximum wait for the first synthetic frame after sensor start.
+    #[serde(default = "default_first_frame_timeout_ms")]
+    pub first_frame_timeout_ms: u64,
+}
+
+fn default_first_frame_timeout_ms() -> u64 {
+    2_000
 }
 
 impl AppConfig {
@@ -74,9 +96,11 @@ impl AppConfig {
         Self::from_toml(DEFAULT_CONFIG).expect("default configuration must be valid")
     }
 
-    /// Parses configuration from a TOML string.
+    /// Parses configuration from a TOML string and validates it.
     pub fn from_toml(source: &str) -> Result<Self, ConfigError> {
-        toml::from_str(source).map_err(ConfigError::Parse)
+        let config: Self = toml::from_str(source).map_err(ConfigError::Parse)?;
+        config.validate()?;
+        Ok(config)
     }
 
     /// Loads configuration from a TOML file.
@@ -92,6 +116,14 @@ impl AppConfig {
         } else {
             Ok(Self::default_config())
         }
+    }
+
+    /// Validates nested configuration sections.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.synthetic_sensor
+            .validate()
+            .map_err(ConfigError::Synthetic)?;
+        Ok(())
     }
 }
 
@@ -111,12 +143,40 @@ mod tests {
         assert_eq!(config.application.name, "aeryon");
         assert_eq!(config.logging.level, "info");
         assert!(config.plugins.enabled);
+        assert!(config.synthetic_sensor.enabled);
     }
 
     #[test]
     fn invalid_toml_is_rejected() {
         let error = AppConfig::from_toml("application =").expect_err("invalid toml");
         assert!(matches!(error, ConfigError::Parse(_)));
+    }
+
+    #[test]
+    fn invalid_synthetic_config_is_rejected() {
+        let error = AppConfig::from_toml(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "info"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+
+            [synthetic_sensor]
+            enabled = true
+            interval_ms = 0
+            "#,
+        )
+        .expect_err("invalid synthetic config");
+        assert!(matches!(error, ConfigError::Synthetic(_)));
     }
 
     #[test]
@@ -136,6 +196,12 @@ mod tests {
 
             [runtime]
             shutdown_timeout_secs = 5
+            first_frame_timeout_ms = 500
+
+            [synthetic_sensor]
+            enabled = false
+            interval_ms = 50
+            samples_per_frame = 32
             "#,
         )
         .expect("valid config");
@@ -144,5 +210,7 @@ mod tests {
         assert_eq!(config.logging.level, "debug");
         assert!(!config.plugins.enabled);
         assert_eq!(config.runtime.shutdown_timeout_secs, 5);
+        assert!(!config.synthetic_sensor.enabled);
+        assert_eq!(config.synthetic_sensor.samples_per_frame, 32);
     }
 }

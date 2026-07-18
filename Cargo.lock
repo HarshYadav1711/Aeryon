@@ -33,6 +33,10 @@ version = "0.1.0"
 [[package]]
 name = "aeryon-events"
 version = "0.1.0"
+dependencies = [
+ "aeryon-domain",
+ "tokio",
+]
 
 [[package]]
 name = "aeryon-features"
@@ -58,8 +62,12 @@ version = "0.1.0"
 name = "aeryon-runtime"
 version = "0.1.0"
 dependencies = [
+ "aeryon-domain",
+ "aeryon-events",
  "aeryon-plugin-runtime",
+ "aeryon-synthetic-sensor",
  "serde",
+ "tokio",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -71,11 +79,25 @@ version = "0.1.0"
 dependencies = [
  "aeryon-runtime",
  "ctrlc",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
 name = "aeryon-storage"
 version = "0.1.0"
+
+[[package]]
+name = "aeryon-synthetic-sensor"
+version = "0.1.0"
+dependencies = [
+ "aeryon-domain",
+ "aeryon-events",
+ "aeryon-plugin-runtime",
+ "serde",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "aeryon-world"
@@ -470,6 +492,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "tokio"
+version = "1.53.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d988bcd52dbe076d3d46903332f58c912b87a2c49b1428419a5845154762ffee"
+dependencies = [
+ "pin-project-lite",
+ "tokio-macros",
+]
+
+[[package]]
+name = "tokio-macros"
+version = "2.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6328af13490e73a9b4694030fafd93f8c8c6a9dede33e821c3fc63eddf8042ba"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

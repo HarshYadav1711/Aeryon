@@ -58,6 +58,12 @@ core/
     plugins/         Sensor backend plugin interface
     storage/         Persistence layer
     config/          Configuration management
+    domain/          Shared domain contracts
+    plugin-runtime/  Plugin lifecycle and registry
+    runtime/         Application runtime
+
+plugins/
+    synthetic-sensor/  Deterministic dual-sine test sensor (not a real sensor)
 
 native/
     cpp-dsp/         C++ DSP implementations
@@ -89,7 +95,7 @@ scripts/             Build, CI, and maintenance scripts
 
 ## Current Status
 
-The repository is a buildable multi-language workspace. Subsystems expose minimal public APIs; perception algorithms, DSP kernels, and ML pipelines are not implemented yet. See [ROADMAP.md](ROADMAP.md) for planned milestones.
+Milestone M2.1 is implemented: a deterministic synthetic sensor plugin publishes typed frame events through an in-process event bus, and the server consumes them via the plugin runtime. Perception algorithms, DSP, calibration, and WiFi CSI are not implemented yet. The synthetic sensor is integration-test infrastructure, not a real sensing backend. See [ROADMAP.md](ROADMAP.md).
 
 ## Development
 
@@ -109,6 +115,8 @@ Run from the repository root unless noted.
 | Rust tests | `cargo test` or `scripts/cargo-test.ps1` |
 | Rust format | `cargo fmt --all` or `scripts/cargo-fmt.ps1` |
 | Rust lint | `cargo clippy --workspace --all-targets -- -D warnings` |
+| Run server | `cargo run --bin server` |
+| CLI info | `cargo run -p aeryon-cli -- info` |
 | C++ build and test | `scripts/cmake-build.ps1` |
 | Python install | `python -m pip install ./ml` or `scripts/python-install.ps1` |
 | ML CLI | `aeryon-ml` |
@@ -118,6 +126,7 @@ Run from the repository root unless noted.
 
 Unix equivalents are available under `scripts/*.sh`.
 
+With the default `config/aeryon.toml`, the server starts the synthetic sensor, logs frame progress periodically, and shuts down cleanly on Ctrl+C. Set `[synthetic_sensor] enabled = false` to disable it.
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.

@@ -1,22 +1,19 @@
 [package]
-name = "aeryon-runtime"
+name = "aeryon-synthetic-sensor"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Application runtime for the Aeryon perception platform"
+description = "Deterministic synthetic sensor plugin for Aeryon integration testing"
 rust-version.workspace = true
 
 [dependencies]
-aeryon-domain = { path = "../domain" }
-aeryon-events = { path = "../events" }
-aeryon-plugin-runtime = { path = "../plugin-runtime" }
-aeryon-synthetic-sensor = { path = "../../plugins/synthetic-sensor" }
+aeryon-domain = { path = "../../core/domain" }
+aeryon-events = { path = "../../core/events" }
+aeryon-plugin-runtime = { path = "../../core/plugin-runtime" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-toml = "0.8"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

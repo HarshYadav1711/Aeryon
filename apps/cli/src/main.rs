@@ -18,7 +18,7 @@ enum Commands {
     Version,
     /// Print application configuration summary.
     Info,
-    /// Print runtime health status.
+    /// Print configured health snapshot for this process.
     Health,
 }
 
@@ -50,6 +50,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     "disabled"
                 }
             );
+            println!(
+                "synthetic_sensor: {}",
+                if config.synthetic_sensor.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            );
+            if config.synthetic_sensor.enabled {
+                println!(
+                    "synthetic_sensor.interval_ms: {}",
+                    config.synthetic_sensor.interval_ms
+                );
+                println!(
+                    "synthetic_sensor.samples_per_frame: {}",
+                    config.synthetic_sensor.samples_per_frame
+                );
+            }
             println!("log level: {}", config.logging.level);
         }
         Commands::Health => {
@@ -60,6 +78,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 "plugins: {}",
                 if config.plugins.enabled {
                     "enabled"
+                } else {
+                    "disabled"
+                }
+            );
+            println!(
+                "synthetic_sensor: {}",
+                if config.synthetic_sensor.enabled {
+                    "configured"
                 } else {
                     "disabled"
                 }

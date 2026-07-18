@@ -3,6 +3,7 @@
 use core::fmt;
 
 use aeryon_plugin_runtime::PluginError;
+use aeryon_synthetic_sensor::SyntheticConfigError;
 
 use crate::health::RuntimeHealth;
 
@@ -13,6 +14,8 @@ pub enum ConfigError {
     Io(std::io::Error),
     /// Configuration file could not be parsed.
     Parse(toml::de::Error),
+    /// Synthetic sensor configuration failed validation.
+    Synthetic(SyntheticConfigError),
 }
 
 /// Errors encountered while initializing logging.
@@ -40,6 +43,8 @@ pub enum RuntimeError {
         /// Actual runtime health state.
         actual: RuntimeHealth,
     },
+    /// Tokio runtime handle is unavailable.
+    MissingTokioRuntime,
 }
 
 impl ConfigError {
@@ -73,6 +78,7 @@ impl fmt::Display for ConfigError {
         match self {
             Self::Io(error) => write!(f, "configuration I/O error: {error}"),
             Self::Parse(error) => write!(f, "configuration parse error: {error}"),
+            Self::Synthetic(error) => write!(f, "configuration validation error: {error}"),
         }
     }
 }
@@ -98,12 +104,32 @@ impl fmt::Display for RuntimeError {
                     "invalid runtime state: expected {expected}, got {actual}"
                 )
             }
+            Self::MissingTokioRuntime => {
+                f.write_str("tokio runtime handle is required for sensor tasks")
+            }
         }
     }
 }
 
-impl std::error::Error for ConfigError {}
-impl std::error::Error for RuntimeError {}
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Parse(error) => Some(error),
+            Self::Synthetic(error) => Some(error),
+        }
+    }
+}
+
+impl std::error::Error for RuntimeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Config(error) => Some(error),
+            Self::Plugin(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

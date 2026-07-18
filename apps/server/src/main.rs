@@ -1,17 +1,18 @@
 use std::path::PathBuf;
 use std::process;
-use std::sync::mpsc;
 
 use aeryon_runtime::{AppConfig, Runtime, banner};
+use tokio::sync::oneshot;
 
-fn main() {
-    if let Err(error) = run() {
+#[tokio::main]
+async fn main() {
+    if let Err(error) = run().await {
         eprintln!("server error: {error}");
         process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", banner());
 
     let config_path = std::env::var_os("AERYON_CONFIG")
@@ -23,14 +24,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     runtime.start()?;
 
     println!("{}", runtime.startup_summary());
-    println!("Press Ctrl+C to shutdown");
+    tracing::info!("press Ctrl+C to shutdown");
 
-    let (shutdown_tx, shutdown_rx) = mpsc::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let mut shutdown_tx = Some(shutdown_tx);
     ctrlc::set_handler(move || {
-        let _ = shutdown_tx.send(());
+        if let Some(tx) = shutdown_tx.take() {
+            let _ = tx.send(());
+        }
     })?;
 
-    shutdown_rx.recv()?;
+    let _ = shutdown_rx.await;
     runtime.shutdown()?;
 
     Ok(())

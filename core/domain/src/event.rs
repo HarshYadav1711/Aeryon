@@ -15,6 +15,46 @@ pub struct FrameReceived {
     pub sensor_id: SensorId,
     /// Acquisition timestamp.
     pub timestamp: Timestamp,
+    /// Monotonic sequence number within the sensor stream.
+    pub sequence: u64,
+}
+
+/// A sensor plugin started producing frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SensorStarted {
+    /// Sensor that started.
+    pub sensor_id: SensorId,
+    /// Start timestamp.
+    pub timestamp: Timestamp,
+}
+
+/// A sensor plugin stopped producing frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SensorStopped {
+    /// Sensor that stopped.
+    pub sensor_id: SensorId,
+    /// Stop timestamp.
+    pub timestamp: Timestamp,
+}
+
+/// Classification of a sensor failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SensorFailureKind {
+    /// The producer task exited unexpectedly.
+    ProducerExited,
+    /// Publishing a frame event failed.
+    PublishFailed,
+}
+
+/// A sensor plugin entered a failure state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SensorFailed {
+    /// Sensor that failed.
+    pub sensor_id: SensorId,
+    /// Failure timestamp.
+    pub timestamp: Timestamp,
+    /// Failure classification.
+    pub kind: SensorFailureKind,
 }
 
 /// A new observation was recorded.
@@ -79,6 +119,12 @@ pub struct WorldSnapshotCommitted {
 pub enum Event {
     /// A sensor frame was received.
     FrameReceived(FrameReceived),
+    /// A sensor started producing frames.
+    SensorStarted(SensorStarted),
+    /// A sensor stopped producing frames.
+    SensorStopped(SensorStopped),
+    /// A sensor entered a failure state.
+    SensorFailed(SensorFailed),
     /// An observation was recorded.
     ObservationRecorded(ObservationRecorded),
     /// An entity was added or updated.
@@ -98,6 +144,9 @@ impl Event {
     pub fn timestamp(&self) -> Timestamp {
         match self {
             Self::FrameReceived(event) => event.timestamp,
+            Self::SensorStarted(event) => event.timestamp,
+            Self::SensorStopped(event) => event.timestamp,
+            Self::SensorFailed(event) => event.timestamp,
             Self::ObservationRecorded(event) => event.observation.timestamp,
             Self::EntityUpserted(event) => event.entity.last_updated,
             Self::EntityRemoved(event) => event.timestamp,
@@ -175,8 +224,29 @@ mod tests {
             frame_id: FrameId::new(1),
             sensor_id: SensorId::new(2),
             timestamp: Timestamp::from_nanos(99),
+            sequence: 0,
         });
         assert_eq!(event.timestamp(), Timestamp::from_nanos(99));
+    }
+
+    #[test]
+    fn sensor_lifecycle_events_carry_timestamps() {
+        let started = Event::SensorStarted(SensorStarted {
+            sensor_id: SensorId::new(1),
+            timestamp: Timestamp::from_nanos(10),
+        });
+        let stopped = Event::SensorStopped(SensorStopped {
+            sensor_id: SensorId::new(1),
+            timestamp: Timestamp::from_nanos(20),
+        });
+        let failed = Event::SensorFailed(SensorFailed {
+            sensor_id: SensorId::new(1),
+            timestamp: Timestamp::from_nanos(30),
+            kind: SensorFailureKind::ProducerExited,
+        });
+        assert_eq!(started.timestamp(), Timestamp::from_nanos(10));
+        assert_eq!(stopped.timestamp(), Timestamp::from_nanos(20));
+        assert_eq!(failed.timestamp(), Timestamp::from_nanos(30));
     }
 
     #[test]

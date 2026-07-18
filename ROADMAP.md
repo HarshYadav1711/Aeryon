@@ -2,17 +2,19 @@
 
 This document outlines planned milestones for Aeryon. Items are ordered roughly by dependency. Timelines are not committed.
 
-## Phase 0 — Foundation (current)
+## Phase 0 — Foundation
 
 - [x] Repository structure and documentation
 - [x] Build system and CI pipeline
 - [x] Core crate/workspace layout (Rust)
-- [ ] Configuration schema
-- [ ] Logging and tracing infrastructure
+- [x] Configuration schema
+- [x] Logging and tracing infrastructure
 
-## Phase 1 — Acquisition and Storage
+## Phase 1 — Acquisition and Storage (in progress)
 
-- [ ] Plugin interface definition
+- [x] Plugin interface definition (`aeryon-plugin-runtime`)
+- [x] Typed in-process event bus (`aeryon-events`)
+- [x] Deterministic synthetic sensor plugin (`aeryon-synthetic-sensor`, M2.1)
 - [ ] WiFi CSI acquisition plugin (hardware abstraction only)
 - [ ] Frame serialization format
 - [ ] Storage layer for raw and processed artifacts
@@ -36,12 +38,12 @@ This document outlines planned milestones for Aeryon. Items are ordered roughly 
 
 - [ ] Perception fusion interface
 - [ ] World model schema
-- [ ] Event bus
+- [x] Event bus (in-process typed broadcast)
 - [ ] Revision history and provenance tracking
 
 ## Phase 5 — Applications
 
-- [ ] Server application (API)
+- [x] Server application bootstrap with plugin lifecycle
 - [ ] Frontend for world model visualization
 - [ ] Example pipelines and tutorials
 

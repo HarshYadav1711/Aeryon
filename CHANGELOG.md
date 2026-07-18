@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial repository structure
-- Project documentation (README, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, ROADMAP)
-- Apache 2.0 license
-- Cargo workspace with 13 Rust crates (apps and core subsystems)
+- Milestone M1.1–M1.3: domain contracts, plugin runtime, application runtime
+- Milestone M2.1: deterministic synthetic sensor plugin, typed event bus, runtime frame consumer
+- Cargo workspace with domain, plugin-runtime, runtime, events, and synthetic-sensor crates
 - C++ DSP library scaffold (`native/cpp-dsp`) with CMake build
 - Python ML package (`ml/`) with `aeryon-ml` CLI entry point
 - React + TypeScript + Vite frontend
 - Developer scripts under `scripts/`
 - GitHub Actions CI workflow
 - EditorConfig, rustfmt, and Clippy configuration
+- Project documentation and Apache 2.0 license
