@@ -8,6 +8,7 @@ use aeryon_plugin_runtime::PluginRuntime;
 
 use crate::config::AppConfig;
 use crate::metrics::RuntimeMetrics;
+use crate::signal_store::SignalSnapshotStore;
 
 /// Shared state owned by the running application.
 pub struct AppContext {
@@ -19,6 +20,8 @@ pub struct AppContext {
     pub event_bus: EventBus,
     /// Shared runtime statistics.
     pub metrics: Arc<RuntimeMetrics>,
+    /// Bounded latest-frame / latest-DSP / recent-event store.
+    pub signal_store: Arc<SignalSnapshotStore>,
     /// Monotonic time the context was created.
     pub started_at: Instant,
     /// Wall-clock time the context was created.
@@ -34,6 +37,7 @@ impl AppContext {
         plugin_runtime: PluginRuntime,
         event_bus: EventBus,
         metrics: Arc<RuntimeMetrics>,
+        signal_store: Arc<SignalSnapshotStore>,
         version: &'static str,
     ) -> Self {
         Self {
@@ -41,6 +45,7 @@ impl AppContext {
             plugin_runtime,
             event_bus,
             metrics,
+            signal_store,
             started_at: Instant::now(),
             started_at_wall: SystemTime::now(),
             version,
@@ -64,6 +69,7 @@ mod tests {
             PluginRuntime::new(),
             EventBus::new(),
             RuntimeMetrics::new().shared(),
+            SignalSnapshotStore::default().shared(),
             "0.1.0",
         );
         assert_eq!(context.version, "0.1.0");

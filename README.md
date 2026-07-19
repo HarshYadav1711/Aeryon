@@ -97,7 +97,7 @@ scripts/             Build, CI, and maintenance scripts
 
 ## Current Status
 
-Milestone M3.2 is implemented: configurable CSI calibration (`baseline-csi-v1`) applies ordered deterministic stages (spatial phase unwrap → linear phase detrend → RMS amplitude normalize) to replay frames, publishes calibrated-frame metadata events, and exposes runtime/API/dashboard state. Calibration is development sanitization — not hardware-specific RF calibration and not perception inference. Milestone M3.1 CSI replay remains the development source. See [ROADMAP.md](ROADMAP.md).
+Milestone M3.3 is implemented: temporal CSI windowing and baseline spectral DSP (`baseline-dsp-v1`) assemble calibrated frames into windows, compute a motion-energy channel-change proxy, and produce Hann-windowed one-sided power spectra. Capture-timestamp intervals define frequency bins (not replay wall-clock speed). The Signal Observatory dashboard charts real fixture-derived amplitudes, phases, heatmaps, motion energy, and spectra. Motion energy is not human-motion classification; spectral peaks are not activity labels. Pure Rust (`rustfft`) is the current DSP baseline. Milestones M3.1–M3.2 remain intact. See [ROADMAP.md](ROADMAP.md).
 
 ## Development
 
@@ -116,7 +116,7 @@ Terminal 1 — start the Aeryon server (default: synthetic sensor + API):
 cargo run --bin server
 ```
 
-To use the CSI fixture replay source instead, edit `config/aeryon.toml`:
+To use the CSI fixture replay source with calibration and DSP, edit `config/aeryon.toml`:
 
 ```toml
 [synthetic_sensor]
@@ -133,9 +133,18 @@ maximum_frames = 0
 enabled = true
 profile = "baseline-csi-v1"
 queue_capacity = 64
+
+[dsp]
+enabled = true
+profile = "baseline-dsp-v1"
+queue_capacity = 64
+window_size_frames = 16
+hop_size_frames = 4
+maximum_sequence_gap = 1
+timestamp_jitter_tolerance = 0.10
 ```
 
-Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled. Calibration applies ordered baseline stages (spatial phase unwrap, linear phase detrend, RMS normalize) to CSI replay frames. It is deterministic development sanitization — not hardware calibration. Set `calibration.enabled = false` to keep raw replay without calibrated events.
+Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled. DSP requires calibration. Motion energy is a CSI channel-change proxy; spectra use capture timestamps and are not activity classification. Charts use deterministic replay fixture data. Set `dsp.enabled = false` to keep replay + calibration without DSP results.
 
 Terminal 2 — start the Vite frontend:
 
@@ -146,7 +155,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. Values come from the running Rust server. CSI replay and calibration are labeled as development fixture processing, not live WiFi CSI or hardware-calibrated RF.
+Open `http://127.0.0.1:5173`. The Signal Observatory shows real backend snapshot data. CSI replay, calibration, and DSP are labeled as development fixture processing — not live WiFi RF sensing.
 
 ### API summary (local development)
 
@@ -160,6 +169,10 @@ Configured in `[api]` of `config/aeryon.toml` (default `127.0.0.1:8080`). The AP
 | `GET /api/v1/sensors/synthetic` | Synthetic sensor snapshot |
 | `GET /api/v1/sensors/csi-replay` | CSI fixture replay snapshot |
 | `GET /api/v1/calibration` | CSI calibration worker snapshot |
+| `GET /api/v1/dsp` | DSP worker status snapshot |
+| `GET /api/v1/signal/latest` | Latest raw/calibrated link amplitudes and phases |
+| `GET /api/v1/dsp/latest` | Latest motion-energy and power-spectrum result |
+| `GET /api/v1/events/recent` | Bounded recent event metadata history |
 | `GET /api/v1/events/ws` | WebSocket stream of typed event metadata |
 
 Development CSI fixtures live under `datasets/fixtures/csi/` (see that directory’s README). The format is **Aeryon CSI Fixture Format v1** and is not the production recording format.
@@ -168,6 +181,13 @@ Frontend env (`frontend/.env.example`):
 
 - `VITE_AERYON_API_URL=http://127.0.0.1:8080`
 - `VITE_AERYON_WS_URL=ws://127.0.0.1:8080`
+
+### Signal Observatory notes
+
+- Motion energy measures channel change between consecutive calibrated frames; it is not occupancy or human-motion classification.
+- Spectral peaks are not interpreted as walking, breathing, or other activities in this milestone.
+- Frequency axes are derived from fixture capture timestamps, not browser arrival time or replay delay.
+- Pure Rust FFT is the current baseline; optimization follows profiling.
 
 
 ### Commands

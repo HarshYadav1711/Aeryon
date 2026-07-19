@@ -4,6 +4,7 @@ use core::fmt;
 
 use aeryon_calibration::CalibrationError;
 use aeryon_csi_replay::CsiReplayConfigError;
+use aeryon_dsp::DspError;
 use aeryon_plugin_runtime::PluginError;
 use aeryon_synthetic_sensor::SyntheticConfigError;
 
@@ -22,6 +23,10 @@ pub enum ConfigError {
     CsiReplay(CsiReplayConfigError),
     /// Calibration configuration failed validation.
     Calibration(CalibrationError),
+    /// DSP configuration failed validation.
+    Dsp(DspError),
+    /// DSP requires calibration to be enabled.
+    DspRequiresCalibration,
     /// Synthetic and CSI replay sources cannot both be enabled.
     ConflictingSensorSources,
     /// API bind host is invalid.
@@ -97,6 +102,10 @@ impl fmt::Display for ConfigError {
             Self::Synthetic(error) => write!(f, "configuration validation error: {error}"),
             Self::CsiReplay(error) => write!(f, "configuration validation error: {error}"),
             Self::Calibration(error) => write!(f, "configuration validation error: {error}"),
+            Self::Dsp(error) => write!(f, "configuration validation error: {error}"),
+            Self::DspRequiresCalibration => {
+                f.write_str("dsp.enabled requires calibration.enabled = true")
+            }
             Self::ConflictingSensorSources => f.write_str(
                 "synthetic_sensor and sensors.csi_replay cannot both be enabled; pick one active source",
             ),
@@ -146,7 +155,9 @@ impl std::error::Error for ConfigError {
             Self::Synthetic(error) => Some(error),
             Self::CsiReplay(error) => Some(error),
             Self::Calibration(error) => Some(error),
-            Self::ConflictingSensorSources
+            Self::Dsp(error) => Some(error),
+            Self::DspRequiresCalibration
+            | Self::ConflictingSensorSources
             | Self::InvalidApiHost(_)
             | Self::InvalidApiPort(_)
             | Self::InvalidApiBind(_)

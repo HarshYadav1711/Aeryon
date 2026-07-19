@@ -14,6 +14,7 @@ pub mod health;
 pub mod logging;
 pub mod metrics;
 pub mod runtime;
+pub mod signal_store;
 
 pub use calibration_stats::{CalibrationStats, CalibrationWorkerState};
 pub use config::{
@@ -25,6 +26,10 @@ pub use error::{ConfigError, LoggingError, RuntimeError};
 pub use health::RuntimeHealth;
 pub use metrics::RuntimeMetrics;
 pub use runtime::Runtime;
+pub use signal_store::{DEFAULT_RECENT_EVENT_CAPACITY, SignalSnapshotStore};
+
+// Re-export DSP stats for API surfaces.
+pub use aeryon_dsp::{DspConfig, DspStats, DspWindowResult, DspWorkerState};
 
 /// Returns the runtime crate version.
 pub fn version() -> &'static str {

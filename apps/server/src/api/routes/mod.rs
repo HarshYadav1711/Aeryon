@@ -1,11 +1,13 @@
 //! HTTP and WebSocket route handlers.
 
 mod calibration;
+mod dsp;
 mod events;
 mod health;
 mod plugins;
 mod runtime;
 mod sensors;
+mod signal;
 
 use std::time::Duration;
 
@@ -36,6 +38,10 @@ pub fn build_router(state: AppState, api: &ApiConfig) -> Router {
             get(sensors::csi_replay_handler),
         )
         .route("/api/v1/calibration", get(calibration::calibration_handler))
+        .route("/api/v1/dsp", get(dsp::dsp_handler))
+        .route("/api/v1/dsp/latest", get(dsp::dsp_latest_handler))
+        .route("/api/v1/signal/latest", get(signal::signal_latest_handler))
+        .route("/api/v1/events/recent", get(events::recent_events_handler))
         .route("/api/v1/events/ws", get(events::events_ws_handler))
         .fallback(api_not_found)
         .layer(cors)

@@ -228,6 +228,163 @@ pub struct CalibrationServiceStopped {
     pub timestamp: Timestamp,
 }
 
+/// DSP service started applying a profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DspServiceStarted {
+    /// Start timestamp.
+    pub timestamp: Timestamp,
+    /// Active DSP profile identity.
+    pub profile_id: String,
+    /// Active DSP profile version.
+    pub profile_version: u32,
+    /// Temporal window size in frames.
+    pub window_size_frames: u32,
+    /// Hop size in frames.
+    pub hop_size_frames: u32,
+}
+
+/// A temporal CSI window was assembled (metadata only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CsiWindowAssembled {
+    /// Window identity.
+    pub window_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Frame count in the window.
+    pub frame_count: u32,
+    /// Assembly timestamp.
+    pub timestamp: Timestamp,
+}
+
+/// A DSP window was processed successfully (metadata only; no spectra arrays).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DspWindowProcessed {
+    /// Window identity.
+    pub window_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Frame count in the window.
+    pub frame_count: u32,
+    /// Active DSP profile identity.
+    pub profile_id: String,
+    /// Active DSP profile version.
+    pub profile_version: u32,
+    /// Processing duration in nanoseconds.
+    pub processing_duration_ns: u64,
+    /// Effective sample rate derived from capture timestamps.
+    pub effective_sample_rate_hz: f64,
+    /// Timestamp jitter metric for the window.
+    pub timestamp_jitter: f64,
+    /// Dominant non-DC frequency when available.
+    pub dominant_non_dc_hz: Option<f64>,
+    /// Processing completion timestamp.
+    pub processed_at: Timestamp,
+}
+
+/// Machine-readable DSP failure codes for API surfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DspFailureCode {
+    /// Profile or configuration validation failed.
+    InvalidConfig,
+    /// Window geometry or temporal invariants failed.
+    InvalidWindow,
+    /// Sensor mismatch across frames.
+    SensorMismatch,
+    /// Antenna or subcarrier geometry mismatch.
+    GeometryMismatch,
+    /// Calibration profile identity or version mismatch.
+    CalibrationProfileMismatch,
+    /// Sequence numbers are not strictly increasing.
+    NonMonotonicSequence,
+    /// Sequence gap exceeds configured tolerance.
+    SequenceGap,
+    /// Capture timestamps are not monotonic.
+    NonMonotonicTimestamp,
+    /// Timestamp jitter exceeds spectral tolerance.
+    ExcessiveJitter,
+    /// Motion-energy proxy computation failed.
+    MotionEnergy,
+    /// Spectral analysis rejected the input.
+    Spectral,
+    /// Insufficient samples for spectral analysis.
+    InsufficientLength,
+    /// Effective sample rate is invalid.
+    InvalidSampleRate,
+    /// Non-finite intermediate or output values.
+    NonFinite,
+    /// Output validation failed.
+    OutputValidation,
+    /// DSP worker exited unexpectedly.
+    WorkerExited,
+}
+
+impl DspFailureCode {
+    /// Stable wire label.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidConfig => "invalid_config",
+            Self::InvalidWindow => "invalid_window",
+            Self::SensorMismatch => "sensor_mismatch",
+            Self::GeometryMismatch => "geometry_mismatch",
+            Self::CalibrationProfileMismatch => "calibration_profile_mismatch",
+            Self::NonMonotonicSequence => "non_monotonic_sequence",
+            Self::SequenceGap => "sequence_gap",
+            Self::NonMonotonicTimestamp => "non_monotonic_timestamp",
+            Self::ExcessiveJitter => "excessive_jitter",
+            Self::MotionEnergy => "motion_energy",
+            Self::Spectral => "spectral",
+            Self::InsufficientLength => "insufficient_length",
+            Self::InvalidSampleRate => "invalid_sample_rate",
+            Self::NonFinite => "non_finite",
+            Self::OutputValidation => "output_validation",
+            Self::WorkerExited => "worker_exited",
+        }
+    }
+}
+
+/// DSP processing failed for a window or service-level fault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DspProcessingFailed {
+    /// Window identity when available.
+    pub window_id: Option<u64>,
+    /// Source sensor identifier when available.
+    pub sensor_id: Option<SensorId>,
+    /// Inclusive first sequence when available.
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence when available.
+    pub last_sequence: Option<u64>,
+    /// Failure timestamp.
+    pub timestamp: Timestamp,
+    /// Typed failure code.
+    pub code: DspFailureCode,
+    /// Concise operator-safe message.
+    pub message: String,
+}
+
+/// DSP service became idle or completed after finite input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DspServiceIdle {
+    /// Idle / completed timestamp.
+    pub timestamp: Timestamp,
+    /// Whether finite input completed (`true`) versus idle without windows.
+    pub completed: bool,
+}
+
+/// DSP service stopped cleanly or after cancel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DspServiceStopped {
+    /// Stop timestamp.
+    pub timestamp: Timestamp,
+}
+
 /// A frame was received from a sensor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameReceived {
@@ -365,6 +522,18 @@ pub enum Event {
     CalibrationFailed(CalibrationFailed),
     /// Calibration service stopped.
     CalibrationServiceStopped(CalibrationServiceStopped),
+    /// DSP service started.
+    DspServiceStarted(DspServiceStarted),
+    /// A temporal CSI window was assembled (metadata only).
+    CsiWindowAssembled(CsiWindowAssembled),
+    /// A DSP window was processed (metadata only).
+    DspWindowProcessed(DspWindowProcessed),
+    /// DSP processing failed.
+    DspProcessingFailed(DspProcessingFailed),
+    /// DSP service became idle or completed.
+    DspServiceIdle(DspServiceIdle),
+    /// DSP service stopped.
+    DspServiceStopped(DspServiceStopped),
     /// An observation was recorded.
     ObservationRecorded(ObservationRecorded),
     /// An entity was added or updated.
@@ -396,6 +565,12 @@ impl Event {
             Self::CsiFrameCalibrated(event) => event.calibrated_at,
             Self::CalibrationFailed(event) => event.timestamp,
             Self::CalibrationServiceStopped(event) => event.timestamp,
+            Self::DspServiceStarted(event) => event.timestamp,
+            Self::CsiWindowAssembled(event) => event.timestamp,
+            Self::DspWindowProcessed(event) => event.processed_at,
+            Self::DspProcessingFailed(event) => event.timestamp,
+            Self::DspServiceIdle(event) => event.timestamp,
+            Self::DspServiceStopped(event) => event.timestamp,
             Self::ObservationRecorded(event) => event.observation.timestamp,
             Self::EntityUpserted(event) => event.entity.last_updated,
             Self::EntityRemoved(event) => event.timestamp,

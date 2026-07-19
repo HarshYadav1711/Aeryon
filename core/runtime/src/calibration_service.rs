@@ -4,7 +4,8 @@
 //!
 //! - **Data path:** a bounded `mpsc` channel transports `Arc<CsiFrame>` from the
 //!   CSI replay plugin to this worker. Frames are never silently dropped;
-//!   producers await capacity under backpressure.
+//!   producers await capacity under backpressure. Successful calibrations may be
+//!   forwarded on a second bounded `mpsc` to the DSP worker.
 //! - **Event path:** the typed event bus announces calibration metadata and
 //!   lifecycle state. Complete sample matrices are not published on the bus.
 
@@ -19,12 +20,14 @@ use aeryon_domain::{
     CalibrationFailed, CalibrationFailureCode, CalibrationServiceStopped, CalibrationStarted,
     CsiDataSource, CsiFrameCalibrated, Event, Timestamp,
 };
+use aeryon_dsp::CalibratedFrameTx;
 use aeryon_events::EventBus;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::calibration_stats::{CalibrationStats, CalibrationWorkerState};
 use crate::error::RuntimeError;
+use crate::signal_store::SignalSnapshotStore;
 
 /// Handles for a running calibration service.
 pub struct CalibrationService {
@@ -40,6 +43,8 @@ impl CalibrationService {
         pipeline: CalibrationPipeline,
         stats: Arc<CalibrationStats>,
         queue_capacity: usize,
+        calibrated_tx: Option<CalibratedFrameTx>,
+        snapshot_store: Option<Arc<SignalSnapshotStore>>,
     ) -> Result<Self, RuntimeError> {
         if queue_capacity == 0 {
             return Err(RuntimeError::Config(
@@ -89,6 +94,11 @@ impl CalibrationService {
                             aeryon_csi::CsiSourceKind::Live => CsiDataSource::Live,
                         };
 
+                        let calibrated = Arc::new(calibrated);
+                        if let Some(store) = &snapshot_store {
+                            store.store_calibrated(Arc::clone(&calibrated));
+                        }
+
                         let _ = bus.publish(Event::CsiFrameCalibrated(CsiFrameCalibrated {
                             raw_frame_id: calibrated.raw_frame_id(),
                             sensor_id: calibrated.sensor_id(),
@@ -103,6 +113,15 @@ impl CalibrationService {
                             source,
                             calibrated_at: calibrated.calibrated_at(),
                         }));
+
+                        if let Some(tx) = &calibrated_tx {
+                            // Await capacity — never silently drop calibrated frames.
+                            if tx.send(Arc::clone(&calibrated)).await.is_err() {
+                                tracing::warn!(
+                                    "calibrated-frame DSP channel closed while calibration running"
+                                );
+                            }
+                        }
                     }
                     Err(error) => {
                         stats.record_failure(error.to_string());

@@ -3,9 +3,14 @@ import type {
   CalibrationSnapshot,
   ConnectionState,
   CsiReplaySnapshot,
+  DspLatestResponse,
+  DspSnapshot,
   RuntimeSnapshot,
+  SignalLatestResponse,
   SyntheticSensorSnapshot,
 } from '../api/types'
+import { Heatmap } from './charts/Heatmap'
+import { LineChart } from './charts/LineChart'
 
 export type DashboardProps = {
   connection: ConnectionState
@@ -13,12 +18,64 @@ export type DashboardProps = {
   sensor: SyntheticSensorSnapshot | null
   csiReplay: CsiReplaySnapshot | null
   calibration: CalibrationSnapshot | null
+  dsp: DspSnapshot | null
+  signalLatest: SignalLatestResponse | null
+  dspLatest: DspLatestResponse | null
   events: ApiEventEnvelope[]
   framesReceived: number
   latestSequence: number | null
   latestFrameTimestamp: string | null
   framesPerSecond: number | null
   restError: string | null
+}
+
+export type PipelineStageState =
+  | 'active'
+  | 'completed'
+  | 'idle'
+  | 'disabled'
+  | 'degraded'
+  | 'failed'
+  | 'not_implemented'
+
+export type PipelineStage = {
+  id: string
+  label: string
+  state: PipelineStageState
+}
+
+const STAGE_DISPLAY: Record<string, string> = {
+  phase_unwrap: 'Phase unwrap',
+  linear_phase_detrend: 'Linear phase detrend',
+  rms_amplitude_normalize: 'RMS amplitude normalization',
+}
+
+export function formatStageName(stage: string): string {
+  return STAGE_DISPLAY[stage] ?? stage.replaceAll('_', ' ')
+}
+
+export function formatBasename(path: string): string {
+  const normalized = path.replaceAll('\\', '/')
+  const parts = normalized.split('/')
+  return parts[parts.length - 1] || path
+}
+
+export function formatTimestamp(value: string | null | undefined): string {
+  if (!value) {
+    return '—'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value.replace('T', ' ').replace(/\.\d{3}Z$/, 'Z')
+  }
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 function formatUptime(seconds: number | undefined): string {
@@ -62,54 +119,239 @@ function sourceBadge(runtime: RuntimeSnapshot | null): string {
   return 'Synthetic Development Source'
 }
 
-function sourceNote(runtime: RuntimeSnapshot | null): string {
-  if (runtime?.active_source === 'csi_replay' || runtime?.csi_replay_enabled) {
-    return 'CSI Replay Development Source — deterministic fixture data only. Not live WiFi CSI / RF sensing.'
-  }
-  return 'Deterministic Synthetic Sensor — platform integration validation only. Not WiFi CSI.'
-}
-
-function formatHz(value: number | null | undefined): string {
-  if (value === null || value === undefined) {
+function presentReplayState(csiReplay: CsiReplaySnapshot | null): string {
+  if (!csiReplay) {
     return '—'
   }
-  if (value >= 1_000_000_000) {
-    return `${(value / 1_000_000_000).toFixed(3)} GHz`
+  if (!csiReplay.enabled) {
+    return 'Disabled'
   }
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)} MHz`
+  switch (csiReplay.completion) {
+    case 'completed':
+      return 'Completed'
+    case 'failed':
+      return 'Failed'
+    case 'active':
+      return 'Active'
+    case 'stopped':
+      return 'Stopped'
+    case 'idle':
+      return 'Idle'
+    default:
+      return csiReplay.completion
   }
-  return `${value} Hz`
 }
 
-function completionLabel(completion: string | undefined): string {
-  switch (completion) {
-    case 'active':
+function presentCalibrationState(
+  calibration: CalibrationSnapshot | null,
+  replayCompleted: boolean,
+): string {
+  if (!calibration) {
+    return '—'
+  }
+  if (!calibration.enabled) {
+    return 'Disabled'
+  }
+  const worker = calibration.worker_state
+  if (worker === 'stopped' && replayCompleted) {
+    return 'Completed'
+  }
+  if (worker === 'running') {
+    return 'Active'
+  }
+  if (worker === 'completed') {
+    return 'Completed'
+  }
+  if (worker === 'failed') {
+    return 'Failed'
+  }
+  if (worker === 'idle') {
+    return 'Idle'
+  }
+  if (worker === 'disabled') {
+    return 'Disabled'
+  }
+  if (worker === 'stopped') {
+    return 'Stopped'
+  }
+  return worker
+}
+
+function presentDspState(dsp: DspSnapshot | null): string {
+  if (!dsp) {
+    return '—'
+  }
+  if (!dsp.enabled) {
+    return 'Disabled'
+  }
+  switch (dsp.worker_state) {
+    case 'running':
+      return 'Active'
+    case 'completed':
+      return 'Completed'
+    case 'idle':
+      return 'Idle'
+    case 'disabled':
+      return 'Disabled'
+    case 'failed':
+      return 'Failed'
+    case 'stopped':
+      return 'Stopped'
+    default:
+      return dsp.health === 'degraded' ? 'Degraded' : dsp.worker_state
+  }
+}
+
+function mapWorkerStage(
+  enabled: boolean,
+  worker: string | null | undefined,
+  health: string | null | undefined,
+  replayCompleted: boolean,
+): PipelineStageState {
+  if (!enabled) {
+    return 'disabled'
+  }
+  if (health === 'degraded') {
+    return 'degraded'
+  }
+  switch (worker) {
+    case 'running':
       return 'active'
     case 'completed':
       return 'completed'
     case 'failed':
       return 'failed'
-    case 'stopped':
-      return 'stopped'
+    case 'disabled':
+      return 'disabled'
     case 'idle':
       return 'idle'
+    case 'stopped':
+      return replayCompleted ? 'completed' : 'idle'
     default:
-      return completion ?? '—'
+      return 'idle'
   }
 }
 
-function formatLatencyNs(value: number | null | undefined): string {
-  if (value === null || value === undefined) {
-    return '—'
+export function buildPipelineStages(
+  csiReplay: CsiReplaySnapshot | null,
+  calibration: CalibrationSnapshot | null,
+  dsp: DspSnapshot | null,
+): PipelineStage[] {
+  const replayCompleted = csiReplay?.completion === 'completed'
+
+  let replayState: PipelineStageState = 'idle'
+  if (!csiReplay || !csiReplay.enabled) {
+    replayState = csiReplay?.enabled === false ? 'disabled' : 'idle'
+  } else if (csiReplay.completion === 'completed') {
+    replayState = 'completed'
+  } else if (csiReplay.completion === 'failed') {
+    replayState = 'failed'
+  } else if (csiReplay.completion === 'active') {
+    replayState = 'active'
+  } else if (csiReplay.health === 'degraded') {
+    replayState = 'degraded'
+  } else if (csiReplay.completion === 'stopped') {
+    replayState = 'idle'
+  } else {
+    replayState = 'idle'
   }
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(2)} ms`
+
+  let validationState: PipelineStageState = 'idle'
+  if (!csiReplay || !csiReplay.enabled) {
+    validationState = 'disabled'
+  } else if (csiReplay.completion === 'failed' || (csiReplay.frames_rejected > 0 && csiReplay.health === 'unhealthy')) {
+    validationState = 'failed'
+  } else if (csiReplay.health === 'degraded') {
+    validationState = 'degraded'
+  } else if (csiReplay.completion === 'completed' && csiReplay.frames_accepted > 0) {
+    validationState = 'completed'
+  } else if (csiReplay.completion === 'active' && csiReplay.frames_accepted > 0) {
+    validationState = 'active'
+  } else if (csiReplay.frames_accepted > 0) {
+    validationState = replayCompleted ? 'completed' : 'active'
   }
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)} µs`
+
+  const calibrationState = mapWorkerStage(
+    Boolean(calibration?.enabled),
+    calibration?.worker_state,
+    calibration?.health,
+    Boolean(replayCompleted),
+  )
+
+  let windowingState: PipelineStageState = 'idle'
+  if (!dsp || !dsp.enabled) {
+    windowingState = 'disabled'
+  } else if (dsp.health === 'degraded') {
+    windowingState = 'degraded'
+  } else if (dsp.worker_state === 'failed') {
+    windowingState = 'failed'
+  } else if (dsp.worker_state === 'running') {
+    windowingState = 'active'
+  } else if (
+    dsp.worker_state === 'completed' ||
+    (replayCompleted && dsp.windows_emitted > 0)
+  ) {
+    windowingState = 'completed'
+  } else if (dsp.windows_emitted > 0) {
+    windowingState = 'active'
+  } else if (dsp.worker_state === 'idle' || dsp.worker_state === 'stopped') {
+    windowingState = replayCompleted && dsp.windows_emitted > 0 ? 'completed' : 'idle'
   }
-  return `${value} ns`
+
+  const spectralState = mapWorkerStage(
+    Boolean(dsp?.enabled),
+    dsp?.worker_state,
+    dsp?.health,
+    Boolean(replayCompleted) && (dsp?.windows_emitted ?? 0) > 0,
+  )
+
+  return [
+    { id: 'csi_replay', label: 'CSI Replay', state: replayState },
+    { id: 'validation', label: 'Validation', state: validationState },
+    { id: 'calibration', label: 'Calibration', state: calibrationState },
+    { id: 'windowing', label: 'Windowing', state: windowingState },
+    { id: 'spectral_dsp', label: 'Spectral DSP', state: spectralState },
+    { id: 'perception', label: 'Perception', state: 'not_implemented' },
+  ]
+}
+
+function stageLabel(state: PipelineStageState): string {
+  switch (state) {
+    case 'active':
+      return 'Active'
+    case 'completed':
+      return 'Completed'
+    case 'idle':
+      return 'Idle'
+    case 'disabled':
+      return 'Disabled'
+    case 'degraded':
+      return 'Degraded'
+    case 'failed':
+      return 'Failed'
+    case 'not_implemented':
+      return 'Not implemented'
+  }
+}
+
+function indexAxis(length: number, indices?: number[] | null): number[] {
+  if (indices && indices.length === length) {
+    return indices.map((v) => Number(v))
+  }
+  return Array.from({ length }, (_, i) => i)
+}
+
+function heatmapFromGrid(
+  grid: SignalLatestResponse['calibrated_magnitude_grid'],
+): { values: number[][]; rowLabels: string[]; colLabels: string[] } {
+  if (!grid || grid.length === 0) {
+    return { values: [], rowLabels: [], colLabels: [] }
+  }
+  const values = grid.map((link) => link.magnitudes)
+  const rowLabels = grid.map((link) => `RX${link.rx}/TX${link.tx}`)
+  const cols = Math.max(...values.map((row) => row.length), 0)
+  const colLabels = Array.from({ length: cols }, (_, i) => String(i))
+  return { values, rowLabels, colLabels }
 }
 
 export function Dashboard({
@@ -118,6 +360,9 @@ export function Dashboard({
   sensor,
   csiReplay,
   calibration,
+  dsp,
+  signalLatest,
+  dspLatest,
   events,
   framesReceived,
   latestSequence,
@@ -126,11 +371,46 @@ export function Dashboard({
   restError,
 }: DashboardProps) {
   const csiActive = runtime?.active_source === 'csi_replay' || Boolean(runtime?.csi_replay_enabled)
-  const noFrameYet =
-    connection === 'connected' &&
-    framesReceived === 0 &&
-    latestSequence === null &&
-    latestFrameTimestamp === null
+  const replayCompleted = csiReplay?.completion === 'completed'
+  const pipeline = buildPipelineStages(csiReplay, calibration, dsp)
+  const dspDisabled = dsp !== null && !dsp.enabled
+  const signalLoading = signalLatest === null && connection === 'loading'
+  const dspLatestLoading = dspLatest === null && connection === 'loading'
+
+  const subcarriers = indexAxis(
+    Math.max(
+      signalLatest?.raw_amplitudes?.length ?? 0,
+      signalLatest?.calibrated_amplitudes?.length ?? 0,
+    ),
+    signalLatest?.subcarrier_indices,
+  )
+  const hasAmplitude =
+    Boolean(signalLatest?.available) &&
+    ((signalLatest?.raw_amplitudes?.length ?? 0) > 0 ||
+      (signalLatest?.calibrated_amplitudes?.length ?? 0) > 0)
+  const hasPhase =
+    Boolean(signalLatest?.available) &&
+    ((signalLatest?.raw_wrapped_phases?.length ?? 0) > 0 ||
+      (signalLatest?.calibrated_phases?.length ?? 0) > 0)
+  const heatmap = heatmapFromGrid(signalLatest?.calibrated_magnitude_grid)
+  const hasHeatmap = Boolean(signalLatest?.available) && heatmap.values.length > 0
+
+  const motionX = dspLatest?.motion_energy_time_secs ?? []
+  const motionY = dspLatest?.motion_energy_values ?? []
+  const hasMotion =
+    Boolean(dspLatest?.available) && motionX.length > 0 && motionY.length > 0
+
+  const spectrumX = dspLatest?.spectrum_frequencies_hz ?? []
+  const spectrumY = dspLatest?.spectrum_power ?? []
+  const hasSpectrum =
+    Boolean(dspLatest?.available) && spectrumX.length > 0 && spectrumY.length > 0
+  const dominantHz =
+    dspLatest?.dominant_non_dc_hz ?? dsp?.latest_dominant_non_dc_hz ?? null
+
+  const stagesText =
+    calibration && calibration.stages.length > 0
+      ? calibration.stages.map(formatStageName).join(' → ')
+      : '—'
 
   return (
     <div className="dashboard">
@@ -145,262 +425,335 @@ export function Dashboard({
       </header>
 
       <p className="source-note" data-testid="source-note">
-        {sourceNote(runtime)}
+        Deterministic fixture data. Not live WiFi RF sensing.
       </p>
 
-      <section className="panel" aria-labelledby="connection-heading">
-        <h2 id="connection-heading">Connection</h2>
-        <dl className="metrics">
-          <div>
-            <dt>State</dt>
-            <dd data-testid="connection-state" data-state={connection}>
-              {connectionLabel(connection)}
-            </dd>
+      <section className="status-strip" aria-label="Status strip" data-testid="status-strip">
+        <div className="status-cell">
+          <span className="status-label">Connection</span>
+          <span className="status-value" data-testid="connection-state" data-state={connection}>
+            {connectionLabel(connection)}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Runtime</span>
+          <span className="status-value ellipsis" data-testid="runtime-state">
+            {runtime ? `${runtime.lifecycle_state} · ${formatUptime(runtime.uptime_secs)}` : '—'}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Active source</span>
+          <span className="status-value" data-testid="active-source">
+            {runtime?.active_source ?? '—'}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Replay</span>
+          <span className="status-value" data-testid="replay-state">
+            {presentReplayState(csiReplay)}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Calibration</span>
+          <span className="status-value" data-testid="calibration-state">
+            {presentCalibrationState(calibration, Boolean(replayCompleted))}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">DSP</span>
+          <span className="status-value" data-testid="dsp-state">
+            {presentDspState(dsp)}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Latest sequence</span>
+          <span className="status-value" data-testid="latest-sequence">
+            {latestSequence ?? '—'}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Frames accepted</span>
+          <span className="status-value" data-testid="frames-accepted">
+            {csiActive ? (csiReplay?.frames_accepted ?? '—') : framesReceived}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Windows processed</span>
+          <span className="status-value" data-testid="windows-processed">
+            {dsp?.windows_emitted ?? '—'}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">FPS</span>
+          <span className="status-value" data-testid="frames-per-second">
+            {framesPerSecond === null || Number.isNaN(framesPerSecond)
+              ? '—'
+              : framesPerSecond.toFixed(1)}
+          </span>
+        </div>
+        {restError ? (
+          <div className="status-cell status-cell-wide">
+            <span className="status-label">REST error</span>
+            <span className="status-value" data-testid="rest-error">
+              {restError}
+            </span>
           </div>
-          {restError ? (
-            <div>
-              <dt>REST error</dt>
-              <dd data-testid="rest-error">{restError}</dd>
-            </div>
-          ) : null}
-        </dl>
+        ) : null}
       </section>
 
-      <section className="panel" aria-labelledby="runtime-heading">
-        <h2 id="runtime-heading">Runtime status</h2>
-        {runtime ? (
-          <dl className="metrics" data-testid="runtime-snapshot">
+      {csiActive && csiReplay ? (
+        <section className="panel panel-compact" aria-labelledby="csi-meta-heading">
+          <h2 id="csi-meta-heading">CSI replay</h2>
+          <dl className="metrics metrics-compact" data-testid="csi-replay-snapshot">
             <div>
-              <dt>Lifecycle</dt>
-              <dd>{runtime.lifecycle_state}</dd>
-            </div>
-            <div>
-              <dt>Uptime</dt>
-              <dd>{formatUptime(runtime.uptime_secs)}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd>{runtime.application_version}</dd>
-            </div>
-            <div>
-              <dt>Active source</dt>
-              <dd data-testid="active-source">{runtime.active_source}</dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="muted" data-testid="runtime-empty">
-            Waiting for runtime snapshot…
-          </p>
-        )}
-      </section>
-
-      {csiActive ? (
-        <section className="panel" aria-labelledby="csi-heading">
-          <h2 id="csi-heading">CSI replay status</h2>
-          {csiReplay ? (
-            <dl className="metrics" data-testid="csi-replay-snapshot">
-              <div>
-                <dt>Enabled</dt>
-                <dd>{csiReplay.enabled ? 'yes' : 'no'}</dd>
-              </div>
-              <div>
-                <dt>Lifecycle</dt>
-                <dd>{csiReplay.lifecycle_state ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Health</dt>
-                <dd>{csiReplay.health ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Fixture</dt>
-                <dd data-testid="csi-fixture-path">{csiReplay.fixture_path}</dd>
-              </div>
-              <div>
-                <dt>Completion</dt>
-                <dd data-testid="csi-completion">{completionLabel(csiReplay.completion)}</dd>
-              </div>
-              <div>
-                <dt>Frames accepted</dt>
-                <dd>{csiReplay.frames_accepted}</dd>
-              </div>
-              <div>
-                <dt>Latest sequence</dt>
-                <dd>{csiReplay.latest_sequence ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Antennas (RX×TX)</dt>
-                <dd>
-                  {csiReplay.receive_antennas ?? '—'} × {csiReplay.transmit_antennas ?? '—'}
-                </dd>
-              </div>
-              <div>
-                <dt>Subcarriers</dt>
-                <dd>{csiReplay.subcarrier_count ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Center frequency</dt>
-                <dd>{formatHz(csiReplay.center_frequency_hz)}</dd>
-              </div>
-              <div>
-                <dt>Latest frame time</dt>
-                <dd>{csiReplay.latest_frame_timestamp ?? '—'}</dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="muted">Waiting for CSI replay snapshot…</p>
-          )}
-        </section>
-      ) : (
-        <section className="panel" aria-labelledby="sensor-heading">
-          <h2 id="sensor-heading">Sensor status</h2>
-          {sensor ? (
-            <dl className="metrics" data-testid="sensor-snapshot">
-              <div>
-                <dt>Enabled</dt>
-                <dd>{sensor.enabled ? 'yes' : 'no'}</dd>
-              </div>
-              <div>
-                <dt>Lifecycle</dt>
-                <dd>{sensor.lifecycle_state ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Health</dt>
-                <dd>{sensor.health ?? '—'}</dd>
-              </div>
-              <div>
-                <dt>Sample rate</dt>
-                <dd>{sensor.sample_rate_hz} Hz</dd>
-              </div>
-              <div>
-                <dt>Samples / frame</dt>
-                <dd>{sensor.samples_per_frame}</dd>
-              </div>
-              <div>
-                <dt>Frequencies</dt>
-                <dd>
-                  {sensor.configured_frequencies_hz.primary_hz} Hz /{' '}
-                  {sensor.configured_frequencies_hz.secondary_hz} Hz
-                </dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="muted">Waiting for sensor snapshot…</p>
-          )}
-        </section>
-      )}
-
-      <section className="panel" aria-labelledby="calibration-heading">
-        <h2 id="calibration-heading">Calibration</h2>
-        {calibration ? (
-          <dl className="metrics" data-testid="calibration-snapshot">
-            <div>
-              <dt>Enabled</dt>
-              <dd data-testid="calibration-enabled">{calibration.enabled ? 'yes' : 'no'}</dd>
-            </div>
-            <div>
-              <dt>Profile</dt>
-              <dd data-testid="calibration-profile">{calibration.profile_id ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd>{calibration.profile_version ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Worker</dt>
-              <dd data-testid="calibration-worker">{calibration.worker_state}</dd>
-            </div>
-            <div>
-              <dt>Health</dt>
-              <dd>{calibration.health}</dd>
-            </div>
-            <div>
-              <dt>Stages</dt>
-              <dd data-testid="calibration-stages">
-                {calibration.stages.length > 0 ? calibration.stages.join(' → ') : '—'}
+              <dt>Fixture</dt>
+              <dd
+                className="path-basename ellipsis"
+                data-testid="csi-fixture-path"
+                title={csiReplay.fixture_path}
+              >
+                {formatBasename(csiReplay.fixture_path)}
               </dd>
             </div>
             <div>
-              <dt>Frames submitted</dt>
-              <dd>{calibration.raw_frames_submitted}</dd>
+              <dt>Completion</dt>
+              <dd data-testid="csi-completion">{presentReplayState(csiReplay)}</dd>
+            </div>
+            <div>
+              <dt>Antennas</dt>
+              <dd>
+                {csiReplay.receive_antennas ?? '—'} × {csiReplay.transmit_antennas ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Subcarriers</dt>
+              <dd>{csiReplay.subcarrier_count ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Latest frame</dt>
+              <dd>{formatTimestamp(csiReplay.latest_frame_timestamp)}</dd>
+            </div>
+            <div>
+              <dt>Classification</dt>
+              <dd className="ellipsis" title={csiReplay.data_classification}>
+                {csiReplay.data_classification}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      {!csiActive && sensor ? (
+        <section className="panel panel-compact" aria-labelledby="sensor-meta-heading">
+          <h2 id="sensor-meta-heading">Synthetic sensor</h2>
+          <dl className="metrics metrics-compact" data-testid="sensor-snapshot">
+            <div>
+              <dt>Sample rate</dt>
+              <dd>{sensor.sample_rate_hz} Hz</dd>
+            </div>
+            <div>
+              <dt>Samples / frame</dt>
+              <dd>{sensor.samples_per_frame}</dd>
+            </div>
+            <div>
+              <dt>Health</dt>
+              <dd>{sensor.health ?? '—'}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      {calibration ? (
+        <section className="panel panel-compact" aria-labelledby="cal-meta-heading">
+          <h2 id="cal-meta-heading">Calibration profile</h2>
+          <dl className="metrics metrics-compact" data-testid="calibration-snapshot">
+            <div>
+              <dt>Profile</dt>
+              <dd className="ellipsis" data-testid="calibration-profile" title={calibration.profile_id ?? undefined}>
+                {calibration.profile_id ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Stages</dt>
+              <dd data-testid="calibration-stages">{stagesText}</dd>
             </div>
             <div>
               <dt>Frames calibrated</dt>
               <dd data-testid="calibration-success">{calibration.frames_calibrated}</dd>
             </div>
             <div>
-              <dt>Failures</dt>
-              <dd>{calibration.frames_failed}</dd>
+              <dt>Worker</dt>
+              <dd data-testid="calibration-worker">{calibration.worker_state}</dd>
             </div>
-            <div>
-              <dt>Latest sequence</dt>
-              <dd>{calibration.latest_sequence ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Latest latency</dt>
-              <dd data-testid="calibration-latency">
-                {formatLatencyNs(calibration.last_duration_ns)}
-              </dd>
-            </div>
-            <div>
-              <dt>Average latency</dt>
-              <dd>{formatLatencyNs(calibration.average_duration_ns)}</dd>
-            </div>
-            {calibration.last_error ? (
-              <div>
-                <dt>Last error</dt>
-                <dd data-testid="calibration-error">{calibration.last_error}</dd>
-              </div>
-            ) : null}
           </dl>
-        ) : (
-          <p className="muted">Waiting for calibration snapshot…</p>
-        )}
-        <p className="muted" data-testid="calibration-source-note">
-          CSI Replay Development Source — baseline sanitization only. Not hardware calibration.
+        </section>
+      ) : null}
+
+      <section className="panel" aria-labelledby="pipeline-heading">
+        <h2 id="pipeline-heading">Pipeline progress</h2>
+        <ol className="pipeline" data-testid="pipeline">
+          {pipeline.map((stage) => (
+            <li
+              key={stage.id}
+              className="pipeline-stage"
+              data-testid={`pipeline-stage-${stage.id}`}
+              data-state={stage.state}
+            >
+              <span className="pipeline-label">{stage.label}</span>
+              <span className="pipeline-state" data-testid={`pipeline-state-${stage.id}`}>
+                {stageLabel(stage.state)}
+              </span>
+            </li>
+          ))}
+        </ol>
+        <p className="muted pipeline-note" data-testid="perception-note">
+          Perception is not implemented in this milestone.
         </p>
       </section>
 
-      <section className="panel" aria-labelledby="activity-heading">
-        <h2 id="activity-heading">Live signal activity</h2>
-        {noFrameYet ? (
-          <p className="muted" data-testid="no-frame-state">
-            Connected — no frame received yet.
+      <section className="panel" aria-labelledby="observatory-heading">
+        <h2 id="observatory-heading">Signal Observatory</h2>
+        {dspDisabled ? (
+          <p className="muted" data-testid="dsp-disabled-banner">
+            DSP is disabled. Spectral and motion charts are unavailable.
           </p>
         ) : null}
-        <dl className="metrics" data-testid="activity-metrics">
+
+        <div className="chart-grid">
+          <LineChart
+            title="Raw vs Calibrated Amplitude"
+            testId="amplitude-chart"
+            ariaLabel="Raw versus calibrated amplitude by subcarrier"
+            xValues={subcarriers}
+            series={[
+              {
+                name: 'raw',
+                values: signalLatest?.raw_amplitudes ?? [],
+                color: '#5c6570',
+              },
+              {
+                name: 'calibrated',
+                values: signalLatest?.calibrated_amplitudes ?? [],
+                color: '#1f4b6e',
+              },
+            ]}
+            empty={!hasAmplitude}
+            loading={signalLoading}
+          />
+
+          <LineChart
+            title="Raw vs Calibrated Phase"
+            testId="phase-chart"
+            ariaLabel="Raw versus calibrated phase by subcarrier"
+            xValues={subcarriers}
+            series={[
+              {
+                name: 'raw',
+                values: signalLatest?.raw_wrapped_phases ?? [],
+                color: '#5c6570',
+              },
+              {
+                name: 'calibrated',
+                values: signalLatest?.calibrated_phases ?? [],
+                color: '#8a5a12',
+              },
+            ]}
+            empty={!hasPhase}
+            loading={signalLoading}
+            annotation="Calibrated phase = spatial unwrap + affine detrend (not full hardware calibration)."
+          />
+
+          <Heatmap
+            title="Calibrated Amplitude Heatmap"
+            testId="amplitude-heatmap"
+            ariaLabel="Calibrated amplitude heatmap links by subcarriers"
+            values={heatmap.values}
+            rowLabels={heatmap.rowLabels}
+            colLabels={heatmap.colLabels}
+            empty={!hasHeatmap}
+            loading={signalLoading}
+          />
+
+          <LineChart
+            title="CSI Motion-Energy Proxy"
+            testId="motion-chart"
+            ariaLabel="CSI motion energy proxy over time"
+            xValues={motionX}
+            series={[
+              {
+                name: 'motion_energy',
+                values: motionY,
+                color: '#1f6b45',
+              },
+            ]}
+            empty={dspDisabled || !hasMotion}
+            loading={!dspDisabled && dspLatestLoading}
+            error={dspDisabled ? 'DSP disabled' : null}
+            annotation="Channel-change proxy — not human-motion classification."
+          />
+
+          <LineChart
+            title="Power Spectrum"
+            testId="spectrum-chart"
+            ariaLabel="Power spectrum with dominant non-DC frequency"
+            xValues={spectrumX}
+            series={[
+              {
+                name: 'power',
+                values: spectrumY,
+                color: '#1f4b6e',
+              },
+            ]}
+            empty={dspDisabled || !hasSpectrum}
+            loading={!dspDisabled && dspLatestLoading}
+            error={dspDisabled ? 'DSP disabled' : null}
+            annotation={
+              dominantHz !== null && Number.isFinite(dominantHz)
+                ? `Dominant non-DC: ${dominantHz.toFixed(3)} Hz. Peaks are not interpreted as activities.`
+                : 'Peaks are not interpreted as activities.'
+            }
+          />
+        </div>
+      </section>
+
+      <section className="panel panel-compact" aria-labelledby="activity-heading">
+        <h2 id="activity-heading">Live activity</h2>
+        <dl className="metrics metrics-compact" data-testid="activity-metrics">
           <div>
             <dt>Frames received</dt>
             <dd data-testid="frames-received">{framesReceived}</dd>
           </div>
           <div>
-            <dt>Latest sequence</dt>
-            <dd data-testid="latest-sequence">{latestSequence ?? '—'}</dd>
-          </div>
-          <div>
             <dt>Latest frame time</dt>
-            <dd>{latestFrameTimestamp ?? '—'}</dd>
+            <dd data-testid="latest-frame-time">{formatTimestamp(latestFrameTimestamp)}</dd>
           </div>
           <div>
-            <dt>Estimated FPS</dt>
-            <dd>
-              {framesPerSecond === null ? '—' : framesPerSecond.toFixed(1)}
-            </dd>
+            <dt>DSP windows</dt>
+            <dd>{dsp?.windows_emitted ?? '—'}</dd>
+          </div>
+          <div>
+            <dt>Calibrated frames</dt>
+            <dd>{calibration?.frames_calibrated ?? '—'}</dd>
           </div>
         </dl>
       </section>
 
       <section className="panel" aria-labelledby="events-heading">
-        <h2 id="events-heading">Event timeline</h2>
+        <h2 id="events-heading">Recent event timeline</h2>
         {events.length === 0 ? (
           <p className="muted" data-testid="events-empty">
-            No live events yet.
+            No events yet.
           </p>
         ) : (
           <ol className="event-list" data-testid="event-timeline">
             {events.map((event, index) => (
               <li key={`${event.timestamp}-${event.type}-${index}`}>
-                <span className="event-type">{event.type}</span>
-                <span className="event-time">{event.timestamp}</span>
+                <span className="event-type ellipsis" title={event.type}>
+                  {event.type}
+                </span>
+                <span className="event-time" title={event.timestamp}>
+                  {formatTimestamp(event.timestamp)}
+                </span>
               </li>
             ))}
           </ol>

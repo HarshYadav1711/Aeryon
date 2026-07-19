@@ -1,6 +1,6 @@
 //! Explicit API DTOs. Internal runtime structures are not serialized directly.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Standard error envelope.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -402,6 +402,405 @@ pub struct CalibrationFailedPayload {
 /// Calibration service stopped payload.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CalibrationServiceStoppedPayload {
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Optional RX/TX link selection query parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct LinkQuery {
+    /// Receive antenna index (defaults to `0`).
+    pub rx: Option<u16>,
+    /// Transmit antenna index (defaults to `0`).
+    pub tx: Option<u16>,
+}
+
+impl LinkQuery {
+    /// Resolved RX/TX pair with defaults `(0, 0)`.
+    pub fn resolve(self) -> (u16, u16) {
+        (self.rx.unwrap_or(0), self.tx.unwrap_or(0))
+    }
+}
+
+/// `GET /api/v1/events/recent` query parameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct RecentEventsQuery {
+    /// Maximum events to return (default 50, hard cap 100).
+    pub limit: Option<usize>,
+}
+
+/// `GET /api/v1/dsp` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DspSnapshot {
+    /// Whether DSP is enabled in configuration.
+    pub enabled: bool,
+    /// Active profile identity when configured.
+    pub profile_id: Option<String>,
+    /// Active profile version when configured.
+    pub profile_version: Option<u32>,
+    /// DSP worker lifecycle label.
+    pub worker_state: String,
+    /// Operator-facing health derived from worker state.
+    pub health: String,
+    /// Configured temporal window size in frames.
+    pub window_size_frames: usize,
+    /// Configured hop size in frames.
+    pub hop_size_frames: usize,
+    /// Calibrated frames received by the DSP worker.
+    pub calibrated_frames_received: u64,
+    /// Successfully processed windows.
+    pub windows_emitted: u64,
+    /// Rejected or failed windows.
+    pub windows_rejected: u64,
+    /// Inclusive first sequence of the latest window, if any.
+    pub latest_first_sequence: Option<u64>,
+    /// Inclusive last sequence of the latest window, if any.
+    pub latest_last_sequence: Option<u64>,
+    /// Latest window processing timestamp (RFC 3339), if any.
+    pub latest_window_timestamp: Option<String>,
+    /// Effective sample rate derived from capture timestamps.
+    pub effective_sample_rate_hz: Option<f64>,
+    /// Latest timestamp jitter metric.
+    pub timestamp_jitter: Option<f64>,
+    /// Latest dominant non-DC frequency in hertz.
+    pub latest_dominant_non_dc_hz: Option<f64>,
+    /// Last processing duration in nanoseconds.
+    pub last_duration_ns: Option<u64>,
+    /// Average processing duration in nanoseconds.
+    pub average_duration_ns: Option<u64>,
+    /// Last warning summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_warning: Option<String>,
+    /// Last error summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    /// Data source honesty label.
+    pub data_classification: &'static str,
+}
+
+/// One RX–TX magnitude row for heatmap rendering.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CalibratedMagnitudeGridLink {
+    /// Receive antenna index.
+    pub rx: u16,
+    /// Transmit antenna index.
+    pub tx: u16,
+    /// Per-subcarrier magnitude values for the link.
+    pub magnitudes: Vec<f32>,
+}
+
+/// `GET /api/v1/signal/latest` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SignalLatestResponse {
+    /// Whether a calibrated (and raw) frame snapshot is available.
+    pub available: bool,
+    /// Source classification label when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_classification: Option<&'static str>,
+    /// Sensor identity when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor_id: Option<u64>,
+    /// Frame sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u64>,
+    /// Capture timestamp (RFC 3339) when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capture_timestamp: Option<String>,
+    /// Selected receive antenna index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rx: Option<u16>,
+    /// Selected transmit antenna index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx: Option<u16>,
+    /// Subcarrier indices for the selected frame.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subcarrier_indices: Option<Vec<i16>>,
+    /// Raw amplitudes for the selected link.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_amplitudes: Option<Vec<f32>>,
+    /// Calibrated amplitudes for the selected link.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibrated_amplitudes: Option<Vec<f32>>,
+    /// Raw wrapped phases (radians) for the selected link.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_wrapped_phases: Option<Vec<f32>>,
+    /// Calibrated phases (radians) for the selected link.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibrated_phases: Option<Vec<f32>>,
+    /// Raw frame identity retained by the calibrated frame.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_frame_id: Option<u64>,
+    /// Calibration profile identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration_profile_id: Option<String>,
+    /// Calibration profile version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration_profile_version: Option<u32>,
+    /// Amplitude unit label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amplitude_units: Option<&'static str>,
+    /// Phase unit label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_units: Option<&'static str>,
+    /// Concise amplitude semantics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amplitude_semantics: Option<&'static str>,
+    /// Concise phase semantics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_semantics: Option<&'static str>,
+    /// Data honesty label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_classification: Option<&'static str>,
+    /// Per-link calibrated magnitudes for heatmap rendering.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibrated_magnitude_grid: Option<Vec<CalibratedMagnitudeGridLink>>,
+}
+
+impl SignalLatestResponse {
+    /// Honest empty response before the first calibrated frame arrives.
+    pub fn unavailable() -> Self {
+        Self {
+            available: false,
+            source_classification: None,
+            sensor_id: None,
+            sequence: None,
+            capture_timestamp: None,
+            rx: None,
+            tx: None,
+            subcarrier_indices: None,
+            raw_amplitudes: None,
+            calibrated_amplitudes: None,
+            raw_wrapped_phases: None,
+            calibrated_phases: None,
+            raw_frame_id: None,
+            calibration_profile_id: None,
+            calibration_profile_version: None,
+            amplitude_units: None,
+            phase_units: None,
+            amplitude_semantics: None,
+            phase_semantics: None,
+            data_classification: None,
+            calibrated_magnitude_grid: None,
+        }
+    }
+}
+
+/// `GET /api/v1/dsp/latest` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DspLatestResponse {
+    /// Whether a DSP window result is available.
+    pub available: bool,
+    /// Selected receive antenna index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rx: Option<u16>,
+    /// Selected transmit antenna index.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx: Option<u16>,
+    /// Sensor identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor_id: Option<u64>,
+    /// Window identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<u64>,
+    /// Inclusive first sequence in the window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence in the window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_sequence: Option<u64>,
+    /// First capture timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_capture_timestamp: Option<String>,
+    /// Last capture timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_capture_timestamp: Option<String>,
+    /// Processing completion timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processed_at: Option<String>,
+    /// Effective sample rate from capture timestamps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_sample_rate_hz: Option<f64>,
+    /// Timestamp jitter metric for the window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_jitter: Option<f64>,
+    /// Motion-energy relative time axis in seconds from window start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion_energy_time_secs: Option<Vec<f64>>,
+    /// Motion-energy proxy values for the selected link.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion_energy_values: Option<Vec<f64>>,
+    /// One-sided spectrum frequency bins in hertz.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spectrum_frequencies_hz: Option<Vec<f64>>,
+    /// One-sided spectrum power values aligned with frequency bins.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spectrum_power: Option<Vec<f64>>,
+    /// Dominant non-DC frequency for the selected link or aggregate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dominant_non_dc_hz: Option<f64>,
+    /// Processing duration in nanoseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_duration_ns: Option<u64>,
+    /// Non-fatal warnings from processing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<String>>,
+    /// DSP profile identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsp_profile_id: Option<String>,
+    /// DSP profile version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsp_profile_version: Option<u32>,
+    /// Motion-energy semantic note.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion_energy_semantics: Option<&'static str>,
+    /// Spectral semantic note.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spectrum_semantics: Option<&'static str>,
+    /// Sample-rate / timeline semantic note.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeline_semantics: Option<&'static str>,
+    /// Data honesty label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_classification: Option<&'static str>,
+}
+
+impl DspLatestResponse {
+    /// Honest empty response before the first completed DSP window.
+    pub fn unavailable() -> Self {
+        Self {
+            available: false,
+            rx: None,
+            tx: None,
+            sensor_id: None,
+            window_id: None,
+            first_sequence: None,
+            last_sequence: None,
+            first_capture_timestamp: None,
+            last_capture_timestamp: None,
+            processed_at: None,
+            effective_sample_rate_hz: None,
+            timestamp_jitter: None,
+            motion_energy_time_secs: None,
+            motion_energy_values: None,
+            spectrum_frequencies_hz: None,
+            spectrum_power: None,
+            dominant_non_dc_hz: None,
+            processing_duration_ns: None,
+            warnings: None,
+            dsp_profile_id: None,
+            dsp_profile_version: None,
+            motion_energy_semantics: None,
+            spectrum_semantics: None,
+            timeline_semantics: None,
+            data_classification: None,
+        }
+    }
+}
+
+/// `GET /api/v1/events/recent` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RecentEventsResponse {
+    /// Chronological event envelopes (oldest first).
+    pub events: Vec<ApiEventEnvelope>,
+}
+
+/// DSP service started event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DspServiceStartedPayload {
+    /// Active DSP profile identity.
+    pub profile_id: String,
+    /// Active DSP profile version.
+    pub profile_version: u32,
+    /// Temporal window size in frames.
+    pub window_size_frames: u32,
+    /// Hop size in frames.
+    pub hop_size_frames: u32,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// CSI window assembled metadata payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CsiWindowAssembledPayload {
+    /// Window identity.
+    pub window_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: u64,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Frame count in the window.
+    pub frame_count: u32,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// DSP window processed metadata payload (no spectra arrays).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DspWindowProcessedPayload {
+    /// Window identity.
+    pub window_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: u64,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Frame count in the window.
+    pub frame_count: u32,
+    /// Active DSP profile identity.
+    pub profile_id: String,
+    /// Active DSP profile version.
+    pub profile_version: u32,
+    /// Processing duration in nanoseconds.
+    pub processing_duration_ns: u64,
+    /// Effective sample rate derived from capture timestamps.
+    pub effective_sample_rate_hz: f64,
+    /// Timestamp jitter metric for the window.
+    pub timestamp_jitter: f64,
+    /// Dominant non-DC frequency when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dominant_non_dc_hz: Option<f64>,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// DSP processing failed event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DspProcessingFailedPayload {
+    /// Typed error code.
+    pub code: String,
+    /// Concise operator-safe message.
+    pub message: String,
+    /// Window identity when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<u64>,
+    /// Sensor identity when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor_id: Option<u64>,
+    /// Inclusive first sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_sequence: Option<u64>,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// DSP service idle / completed event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DspServiceIdlePayload {
+    /// Whether finite input completed cleanly.
+    pub completed: bool,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// DSP service stopped event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DspServiceStoppedPayload {
     /// Honesty label.
     pub data_classification: &'static str,
 }

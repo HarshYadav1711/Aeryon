@@ -319,7 +319,63 @@ fn csi_replay_config(path: &str) -> AppConfig {
     .expect("valid csi config")
 }
 
+fn csi_dsp_config(path: &str) -> AppConfig {
+    AppConfig::from_toml(&format!(
+        r#"
+        [application]
+        name = "aeryon"
+        environment = "development"
+
+        [logging]
+        level = "error"
+
+        [plugins]
+        enabled = true
+        autoload = false
+
+        [runtime]
+        shutdown_timeout_secs = 10
+        first_frame_timeout_ms = 2000
+
+        [api]
+        enabled = true
+        host = "127.0.0.1"
+        port = 8080
+        cors_origins = ["http://127.0.0.1:5173"]
+
+        [synthetic_sensor]
+        enabled = false
+
+        [sensors.csi_replay]
+        enabled = true
+        path = "{path}"
+        loop_playback = false
+        frame_interval_ms = 10
+        maximum_frames = 16
+
+        [calibration]
+        enabled = true
+        profile = "baseline-csi-v1"
+        queue_capacity = 32
+
+        [dsp]
+        enabled = true
+        profile = "baseline-dsp-v1"
+        queue_capacity = 32
+        window_size_frames = 8
+        hop_size_frames = 4
+        maximum_sequence_gap = 1
+        timestamp_jitter_tolerance = 0.50
+        "#
+    ))
+    .expect("valid dsp config")
+}
+
 fn write_temp_csi_fixture() -> tempfile::NamedTempFile {
+    write_temp_csi_fixture_with_frames(8)
+}
+
+fn write_temp_csi_fixture_with_frames(frame_count: u64) -> tempfile::NamedTempFile {
     use std::io::Write;
     let mut file = tempfile::NamedTempFile::new().expect("temp");
     writeln!(
@@ -327,13 +383,22 @@ fn write_temp_csi_fixture() -> tempfile::NamedTempFile {
         r#"{{"record_type":"header","schema":"aeryon-csi-fixture","version":1,"sensor_id":"2","description":"api e2e","sample_layout":"rx-tx-subcarrier"}}"#
     )
     .expect("header");
-    for sequence in 0..8_u64 {
+    for sequence in 0..frame_count {
+        // Uniform 10 ms capture spacing keeps spectral sampling valid.
+        let capture_nanos = 1_000_000_000 + sequence * 10_000_000;
+        let scale = 1.0 + (sequence as f64) * 0.05;
         writeln!(
             file,
-            r#"{{"record_type":"frame","frame_id":{},"sequence":{},"capture_timestamp_nanos":{},"center_frequency_hz":5180000000.0,"bandwidth_hz":20000000.0,"receive_antennas":2,"transmit_antennas":1,"subcarrier_indices":[-1,0,1],"samples":[{{"re":1.0,"im":0.0}},{{"re":0.0,"im":1.0}},{{"re":-1.0,"im":0.0}},{{"re":2.0,"im":0.0}},{{"re":0.0,"im":2.0}},{{"re":-2.0,"im":0.0}}]}}"#,
+            r#"{{"record_type":"frame","frame_id":{},"sequence":{},"capture_timestamp_nanos":{},"center_frequency_hz":5180000000.0,"bandwidth_hz":20000000.0,"receive_antennas":2,"transmit_antennas":1,"subcarrier_indices":[-1,0,1],"samples":[{{"re":{},"im":0.0}},{{"re":0.0,"im":{}}},{{"re":{},"im":0.0}},{{"re":{},"im":0.0}},{{"re":0.0,"im":{}}},{{"re":{},"im":0.0}}]}}"#,
             sequence + 1,
             sequence,
-            1_000 + sequence
+            capture_nanos,
+            scale,
+            scale,
+            -scale,
+            2.0 * scale,
+            2.0 * scale,
+            -2.0 * scale
         )
         .expect("frame");
     }
@@ -420,4 +485,201 @@ async fn csi_replay_end_to_end_events_stats_and_endpoint() {
 
     state.runtime().write().await.shutdown().expect("shutdown");
     assert!(!state.runtime().read().await.metrics().consumer_running());
+}
+
+#[tokio::test]
+async fn signal_and_dsp_endpoints_report_no_data_before_frames() {
+    let runtime = started_runtime(false).await;
+    let state = test_state(runtime);
+
+    let (signal_status, signal_body) = json_get(state.clone(), "/api/v1/signal/latest").await;
+    assert_eq!(signal_status, StatusCode::OK);
+    assert_eq!(signal_body["available"], false);
+    assert!(signal_body.get("raw_amplitudes").is_none());
+
+    let (dsp_status, dsp_body) = json_get(state.clone(), "/api/v1/dsp/latest").await;
+    assert_eq!(dsp_status, StatusCode::OK);
+    assert_eq!(dsp_body["available"], false);
+    assert!(dsp_body.get("spectrum_power").is_none());
+
+    let (status_status, status_body) = json_get(state.clone(), "/api/v1/dsp").await;
+    assert_eq!(status_status, StatusCode::OK);
+    assert_eq!(status_body["enabled"], false);
+    assert_eq!(status_body["worker_state"], "disabled");
+    assert_eq!(status_body["health"], "disabled");
+
+    let (events_status, events_body) = json_get(state.clone(), "/api/v1/events/recent").await;
+    assert_eq!(events_status, StatusCode::OK);
+    assert!(events_body["events"].as_array().expect("events").is_empty());
+
+    state.runtime().write().await.shutdown().expect("shutdown");
+}
+
+#[tokio::test]
+async fn signal_dsp_and_events_endpoints_after_pipeline() {
+    let fixture = write_temp_csi_fixture_with_frames(16);
+    let path = fixture.path().to_string_lossy().replace('\\', "/");
+    let mut runtime = Runtime::boot(csi_dsp_config(&path)).expect("boot");
+    let mut receiver = runtime.context().event_bus.subscribe();
+    runtime.start().expect("start");
+
+    let mut windows = 0_u32;
+    let mut failures = Vec::new();
+    let mut started = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while windows < 1 && tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(800), receiver.recv()).await {
+            Ok(Ok(Event::DspServiceStarted(_))) => started = true,
+            Ok(Ok(Event::DspWindowProcessed(_))) => windows += 1,
+            Ok(Ok(Event::DspProcessingFailed(event))) => {
+                failures.push(format!("{}:{}", event.code.as_str(), event.message));
+            }
+            Ok(Ok(_)) => {}
+            Ok(Err(_)) => break,
+            Err(_) => continue,
+        }
+    }
+    assert!(
+        windows >= 1,
+        "expected at least one DSP window (started={started}, failures={failures:?}, emitted={})",
+        runtime.metrics().dsp().windows_emitted()
+    );
+
+    // Allow finite replay to settle into completed/idle.
+    let settle = tokio::time::Instant::now() + Duration::from_secs(2);
+    while tokio::time::Instant::now() < settle {
+        let state = runtime.metrics().dsp().worker_state();
+        if matches!(
+            state,
+            aeryon_runtime::DspWorkerState::Completed | aeryon_runtime::DspWorkerState::Idle
+        ) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let state = test_state(runtime);
+
+    let (dsp_status, dsp_body) = json_get(state.clone(), "/api/v1/dsp").await;
+    assert_eq!(dsp_status, StatusCode::OK);
+    assert_eq!(dsp_body["enabled"], true);
+    assert_eq!(dsp_body["profile_id"], "baseline-dsp-v1");
+    assert!(dsp_body["windows_emitted"].as_u64().unwrap_or(0) >= 1);
+    assert!(dsp_body["calibrated_frames_received"].as_u64().unwrap_or(0) >= 4);
+    let health = dsp_body["health"].as_str().expect("health");
+    assert!(
+        matches!(health, "running" | "completed" | "idle"),
+        "unexpected dsp health {health}"
+    );
+    assert_ne!(health, "failed");
+
+    let (signal_status, signal_body) =
+        json_get(state.clone(), "/api/v1/signal/latest?rx=0&tx=0").await;
+    assert_eq!(signal_status, StatusCode::OK);
+    assert_eq!(signal_body["available"], true);
+    assert_eq!(signal_body["rx"], 0);
+    assert_eq!(signal_body["tx"], 0);
+    assert_eq!(signal_body["source_classification"], "csi_replay");
+    assert_eq!(
+        signal_body["raw_amplitudes"]
+            .as_array()
+            .expect("raw amplitudes")
+            .len(),
+        3
+    );
+    assert_eq!(
+        signal_body["calibrated_amplitudes"]
+            .as_array()
+            .expect("cal amplitudes")
+            .len(),
+        3
+    );
+    assert_eq!(
+        signal_body["raw_wrapped_phases"]
+            .as_array()
+            .expect("raw phases")
+            .len(),
+        3
+    );
+    assert_eq!(
+        signal_body["calibrated_phases"]
+            .as_array()
+            .expect("cal phases")
+            .len(),
+        3
+    );
+    let grid = signal_body["calibrated_magnitude_grid"]
+        .as_array()
+        .expect("grid");
+    assert_eq!(grid.len(), 2);
+    assert_eq!(grid[0]["rx"], 0);
+    assert_eq!(grid[1]["rx"], 1);
+
+    let (signal_bad, signal_err) = json_get(state.clone(), "/api/v1/signal/latest?rx=9&tx=0").await;
+    assert_eq!(signal_bad, StatusCode::BAD_REQUEST);
+    assert_eq!(signal_err["error"]["code"], "invalid_link");
+
+    let (latest_status, latest_body) =
+        json_get(state.clone(), "/api/v1/dsp/latest?rx=0&tx=0").await;
+    assert_eq!(latest_status, StatusCode::OK);
+    assert_eq!(latest_body["available"], true);
+    assert_eq!(latest_body["rx"], 0);
+    assert_eq!(latest_body["tx"], 0);
+    assert!(latest_body["first_sequence"].as_u64().is_some());
+    assert!(latest_body["last_sequence"].as_u64().is_some());
+    assert!(
+        !latest_body["motion_energy_values"]
+            .as_array()
+            .expect("motion")
+            .is_empty()
+    );
+    assert!(
+        !latest_body["spectrum_frequencies_hz"]
+            .as_array()
+            .expect("freqs")
+            .is_empty()
+    );
+    assert!(
+        !latest_body["spectrum_power"]
+            .as_array()
+            .expect("power")
+            .is_empty()
+    );
+    assert!(latest_body["motion_energy_semantics"].as_str().is_some());
+
+    let (latest_bad, latest_err) = json_get(state.clone(), "/api/v1/dsp/latest?rx=3&tx=0").await;
+    assert_eq!(latest_bad, StatusCode::BAD_REQUEST);
+    assert_eq!(latest_err["error"]["code"], "invalid_link");
+
+    let (events_status, events_body) =
+        json_get(state.clone(), "/api/v1/events/recent?limit=50").await;
+    assert_eq!(events_status, StatusCode::OK);
+    let events = events_body["events"].as_array().expect("events");
+    assert!(!events.is_empty());
+    assert!(
+        events
+            .iter()
+            .any(|event| event["type"] == "dsp_window_processed")
+    );
+    assert!(events.iter().any(|event| {
+        matches!(
+            event["type"].as_str(),
+            Some("csi_frame") | Some("csi_frame_calibrated") | Some("dsp_service_started")
+        )
+    }));
+    // Chronological: timestamps should be non-decreasing for envelope timestamp strings when present.
+    assert!(events.len() <= 50);
+
+    let (events_capped, events_capped_body) =
+        json_get(state.clone(), "/api/v1/events/recent?limit=1000").await;
+    assert_eq!(events_capped, StatusCode::OK);
+    let capped = events_capped_body["events"].as_array().expect("capped");
+    assert!(capped.len() <= 100);
+
+    let (events_one, events_one_body) =
+        json_get(state.clone(), "/api/v1/events/recent?limit=1").await;
+    assert_eq!(events_one, StatusCode::OK);
+    assert_eq!(events_one_body["events"].as_array().expect("one").len(), 1);
+
+    state.runtime().write().await.shutdown().expect("shutdown");
 }

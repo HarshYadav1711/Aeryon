@@ -20,7 +20,7 @@ port = 8080
 cors_origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
 
 [synthetic_sensor]
-enabled = true
+enabled = false
 interval_ms = 100
 samples_per_frame = 64
 sample_rate_hz = 1000.0
@@ -33,7 +33,7 @@ log_every_n_frames = 10
 # 1) set synthetic_sensor.enabled = false
 # 2) set sensors.csi_replay.enabled = true
 [sensors.csi_replay]
-enabled = false
+enabled = true
 path = "datasets/fixtures/csi/synthetic_dev_v1.ndjson"
 loop_playback = false
 frame_interval_ms = 100
@@ -55,3 +55,14 @@ enabled = true
 [calibration.baseline_csi_v1.rms_amplitude_normalize]
 enabled = true
 epsilon = 1.0e-8
+
+# Baseline temporal DSP (windowing → motion-energy proxy → Hann/FFT spectrum).
+# Frequencies use capture timestamps, not replay wall-clock speed.
+[dsp]
+enabled = true
+profile = "baseline-dsp-v1"
+queue_capacity = 64
+window_size_frames = 16
+hop_size_frames = 4
+maximum_sequence_gap = 1
+timestamp_jitter_tolerance = 0.10

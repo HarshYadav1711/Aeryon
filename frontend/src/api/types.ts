@@ -125,6 +125,92 @@ export interface CalibrationSnapshot {
   data_classification: string
 }
 
+export interface DspSnapshot {
+  enabled: boolean
+  profile_id: string | null
+  profile_version: number | null
+  worker_state: string
+  health: string
+  window_size_frames: number
+  hop_size_frames: number
+  calibrated_frames_received: number
+  windows_emitted: number
+  windows_rejected: number
+  latest_first_sequence: number | null
+  latest_last_sequence: number | null
+  latest_window_timestamp: string | null
+  effective_sample_rate_hz: number | null
+  timestamp_jitter: number | null
+  latest_dominant_non_dc_hz: number | null
+  last_duration_ns: number | null
+  average_duration_ns: number | null
+  last_warning?: string | null
+  last_error?: string | null
+  data_classification: string
+}
+
+export interface CalibratedMagnitudeGridLink {
+  rx: number
+  tx: number
+  magnitudes: number[]
+}
+
+export interface SignalLatestResponse {
+  available: boolean
+  source_classification?: string | null
+  sensor_id?: number | null
+  sequence?: number | null
+  capture_timestamp?: string | null
+  rx?: number | null
+  tx?: number | null
+  subcarrier_indices?: number[] | null
+  raw_amplitudes?: number[] | null
+  calibrated_amplitudes?: number[] | null
+  raw_wrapped_phases?: number[] | null
+  calibrated_phases?: number[] | null
+  raw_frame_id?: number | null
+  calibration_profile_id?: string | null
+  calibration_profile_version?: number | null
+  amplitude_units?: string | null
+  phase_units?: string | null
+  amplitude_semantics?: string | null
+  phase_semantics?: string | null
+  data_classification?: string | null
+  calibrated_magnitude_grid?: CalibratedMagnitudeGridLink[] | null
+}
+
+export interface DspLatestResponse {
+  available: boolean
+  rx?: number | null
+  tx?: number | null
+  sensor_id?: number | null
+  window_id?: number | null
+  first_sequence?: number | null
+  last_sequence?: number | null
+  first_capture_timestamp?: string | null
+  last_capture_timestamp?: string | null
+  processed_at?: string | null
+  effective_sample_rate_hz?: number | null
+  timestamp_jitter?: number | null
+  motion_energy_time_secs?: number[] | null
+  motion_energy_values?: number[] | null
+  spectrum_frequencies_hz?: number[] | null
+  spectrum_power?: number[] | null
+  dominant_non_dc_hz?: number | null
+  processing_duration_ns?: number | null
+  warnings?: string[] | null
+  dsp_profile_id?: string | null
+  dsp_profile_version?: number | null
+  motion_energy_semantics?: string | null
+  spectrum_semantics?: string | null
+  timeline_semantics?: string | null
+  data_classification?: string | null
+}
+
+export interface RecentEventsResponse {
+  events: ApiEventEnvelope[]
+}
+
 export interface ApiEventEnvelope {
   version: number
   type: string

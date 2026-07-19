@@ -5,6 +5,7 @@
 
 mod dto;
 mod error;
+mod event_map;
 mod routes;
 mod state;
 mod time;

@@ -135,4 +135,49 @@ impl CalibratedCsiFrame {
     pub fn subcarrier_count(&self) -> usize {
         self.raw.subcarrier_count()
     }
+
+    /// Number of RX–TX antenna links.
+    pub fn link_count(&self) -> usize {
+        self.raw.link_count()
+    }
+
+    /// Returns a calibrated sample for `(rx, tx, subcarrier_position)`, if in bounds.
+    pub fn sample(&self, rx: u16, tx: u16, subcarrier_position: usize) -> Option<ComplexSample> {
+        let index = self.sample_index(rx, tx, subcarrier_position)?;
+        self.samples.get(index).copied()
+    }
+
+    /// Contiguous calibrated samples for one RX–TX link, if in bounds.
+    pub fn link(&self, rx: u16, tx: u16) -> Option<&[ComplexSample]> {
+        if rx >= self.receive_antennas() || tx >= self.transmit_antennas() {
+            return None;
+        }
+        let start = self.sample_index(rx, tx, 0)?;
+        let end = start + self.subcarrier_count();
+        self.samples.get(start..end)
+    }
+
+    /// Calibrated amplitude (magnitude) for a selected sample.
+    pub fn amplitude(&self, rx: u16, tx: u16, subcarrier_position: usize) -> Option<f32> {
+        self.sample(rx, tx, subcarrier_position)
+            .map(|sample| sample.norm())
+    }
+
+    /// Calibrated phase (radians) for a selected sample.
+    pub fn phase(&self, rx: u16, tx: u16, subcarrier_position: usize) -> Option<f32> {
+        self.sample(rx, tx, subcarrier_position)
+            .map(|sample| sample.arg())
+    }
+
+    fn sample_index(&self, rx: u16, tx: u16, subcarrier_position: usize) -> Option<usize> {
+        if rx >= self.receive_antennas()
+            || tx >= self.transmit_antennas()
+            || subcarrier_position >= self.subcarrier_count()
+        {
+            return None;
+        }
+        let links_before =
+            usize::from(rx) * usize::from(self.transmit_antennas()) + usize::from(tx);
+        Some(links_before * self.subcarrier_count() + subcarrier_position)
+    }
 }

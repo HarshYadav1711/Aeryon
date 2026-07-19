@@ -21,10 +21,11 @@ pub use entity::{Entity, EntityKind};
 pub use event::{
     CalibrationFailed, CalibrationFailureCode, CalibrationServiceStopped, CalibrationStarted,
     CsiDataSource, CsiFrameCalibrated, CsiFrameReceived, CsiReplayCompleted, CsiReplayFailed,
-    CsiReplayFailureKind, CsiReplayStarted, CsiReplayStopped, EntityRemoved, EntityUpserted, Event,
-    EventPublisher, EventSubscriber, FrameReceived, ObservationRecorded, RelationshipUpserted,
-    SensorFailed, SensorFailureKind, SensorStarted, SensorStopped, StageCompleted,
-    WorldSnapshotCommitted,
+    CsiReplayFailureKind, CsiReplayStarted, CsiReplayStopped, CsiWindowAssembled, DspFailureCode,
+    DspProcessingFailed, DspServiceIdle, DspServiceStarted, DspServiceStopped, DspWindowProcessed,
+    EntityRemoved, EntityUpserted, Event, EventPublisher, EventSubscriber, FrameReceived,
+    ObservationRecorded, RelationshipUpserted, SensorFailed, SensorFailureKind, SensorStarted,
+    SensorStopped, StageCompleted, WorldSnapshotCommitted,
 };
 pub use frame::{Frame, FrameMetadata, Metadata, MetadataKey, MetadataValue};
 pub use ids::{EntityId, FrameId, MissionId, ObservationId, SensorId};

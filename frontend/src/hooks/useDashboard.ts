@@ -7,12 +7,16 @@ import type {
   CalibrationSnapshot,
   ConnectionState,
   CsiReplaySnapshot,
+  DspLatestResponse,
+  DspSnapshot,
   RuntimeSnapshot,
+  SignalLatestResponse,
   SyntheticSensorSnapshot,
 } from '../api/types'
 
 export const MAX_EVENTS = 50
 const REST_POLL_MS = 2_000
+const FPS_WINDOW_MS = 5_000
 
 export type DashboardState = {
   connection: ConnectionState
@@ -20,6 +24,9 @@ export type DashboardState = {
   sensor: SyntheticSensorSnapshot | null
   csiReplay: CsiReplaySnapshot | null
   calibration: CalibrationSnapshot | null
+  dsp: DspSnapshot | null
+  signalLatest: SignalLatestResponse | null
+  dspLatest: DspLatestResponse | null
   events: ApiEventEnvelope[]
   framesReceived: number
   latestSequence: number | null
@@ -35,6 +42,9 @@ function emptyState(): DashboardState {
     sensor: null,
     csiReplay: null,
     calibration: null,
+    dsp: null,
+    signalLatest: null,
+    dspLatest: null,
     events: [],
     framesReceived: 0,
     latestSequence: null,
@@ -48,29 +58,109 @@ function isFrameEvent(type: string): boolean {
   return type === 'sensor_frame' || type === 'csi_frame'
 }
 
+function shouldRefetchSignal(type: string): boolean {
+  return type === 'dsp_window_processed' || type === 'csi_frame_calibrated'
+}
+
+function eventKey(event: ApiEventEnvelope): string {
+  return `${event.type}|${event.timestamp}`
+}
+
+function mergeEventsNewestFirst(
+  existing: ApiEventEnvelope[],
+  incoming: ApiEventEnvelope[],
+): ApiEventEnvelope[] {
+  const seen = new Set<string>()
+  const merged: ApiEventEnvelope[] = []
+  for (const event of [...incoming, ...existing]) {
+    const key = eventKey(event)
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    merged.push(event)
+    if (merged.length >= MAX_EVENTS) {
+      break
+    }
+  }
+  return merged
+}
+
+function computeFps(
+  frameTimes: number[],
+  now: number,
+  replayCompleted: boolean,
+): number | null {
+  const recent = frameTimes.filter((time) => now - time <= FPS_WINDOW_MS)
+  if (replayCompleted && recent.length === 0) {
+    return null
+  }
+  if (recent.length < 2) {
+    return null
+  }
+  const spanMs = recent[recent.length - 1]! - recent[0]!
+  if (spanMs <= 0) {
+    return null
+  }
+  return ((recent.length - 1) * 1000) / spanMs
+}
+
 export function useDashboard(): DashboardState {
   const [state, setState] = useState<DashboardState>(emptyState)
   const frameTimesRef = useRef<number[]>([])
   const wsConnectedRef = useRef(false)
+  const replayCompletedRef = useRef(false)
+
+  const refreshSignalViews = useCallback(async () => {
+    try {
+      const [signalLatest, dspLatest] = await Promise.all([
+        apiClient.getSignalLatest(),
+        apiClient.getDspLatest(),
+      ])
+      setState((prev) => ({
+        ...prev,
+        signalLatest,
+        dspLatest,
+      }))
+    } catch {
+      // Keep last signal views; status poll reports REST failures.
+    }
+  }, [])
 
   const refreshRest = useCallback(async () => {
     try {
-      const [runtime, sensor, csiReplay, calibration] = await Promise.all([
-        apiClient.getRuntime(),
-        apiClient.getSyntheticSensor(),
-        apiClient.getCsiReplay(),
-        apiClient.getCalibration(),
-      ])
+      const [runtime, sensor, csiReplay, calibration, dsp, signalLatest, dspLatest] =
+        await Promise.all([
+          apiClient.getRuntime(),
+          apiClient.getSyntheticSensor(),
+          apiClient.getCsiReplay(),
+          apiClient.getCalibration(),
+          apiClient.getDsp(),
+          apiClient.getSignalLatest(),
+          apiClient.getDspLatest(),
+        ])
+      replayCompletedRef.current = csiReplay.completion === 'completed'
+      const now = Date.now()
+      frameTimesRef.current = frameTimesRef.current.filter((time) => now - time <= FPS_WINDOW_MS)
+      const framesPerSecond = computeFps(
+        frameTimesRef.current,
+        now,
+        replayCompletedRef.current,
+      )
       setState((prev) => ({
         ...prev,
         runtime,
         sensor,
         csiReplay,
         calibration,
+        dsp,
+        signalLatest,
+        dspLatest,
         restError: null,
         framesReceived: Math.max(prev.framesReceived, runtime.frames_received),
         latestSequence: runtime.last_frame_sequence ?? prev.latestSequence,
         latestFrameTimestamp: runtime.last_frame_timestamp ?? prev.latestFrameTimestamp,
+        framesPerSecond,
         connection: wsConnectedRef.current
           ? 'connected'
           : prev.connection === 'reconnecting'
@@ -103,24 +193,48 @@ export function useDashboard(): DashboardState {
 
     const bootstrap = async () => {
       try {
-        const [runtime, sensor, csiReplay, calibration] = await Promise.all([
-          apiClient.getRuntime(),
-          apiClient.getSyntheticSensor(),
-          apiClient.getCsiReplay(),
-          apiClient.getCalibration(),
-        ])
+        // Recent events first so the timeline is seeded before WS appends.
+        const recent = await apiClient.getRecentEvents(MAX_EVENTS)
         if (cancelled) {
           return
         }
+        const seeded = [...recent.events].reverse().slice(0, MAX_EVENTS)
+        setState((prev) => ({
+          ...prev,
+          events: mergeEventsNewestFirst([], seeded),
+        }))
+
+        const [runtime, sensor, csiReplay, calibration, dsp, signalLatest, dspLatest] =
+          await Promise.all([
+            apiClient.getRuntime(),
+            apiClient.getSyntheticSensor(),
+            apiClient.getCsiReplay(),
+            apiClient.getCalibration(),
+            apiClient.getDsp(),
+            apiClient.getSignalLatest(),
+            apiClient.getDspLatest(),
+          ])
+        if (cancelled) {
+          return
+        }
+        replayCompletedRef.current = csiReplay.completion === 'completed'
         setState((prev) => ({
           ...prev,
           runtime,
           sensor,
           csiReplay,
           calibration,
+          dsp,
+          signalLatest,
+          dspLatest,
           framesReceived: runtime.frames_received,
           latestSequence: runtime.last_frame_sequence,
           latestFrameTimestamp: runtime.last_frame_timestamp,
+          framesPerSecond: computeFps(
+            frameTimesRef.current,
+            Date.now(),
+            replayCompletedRef.current,
+          ),
           restError: null,
         }))
       } catch (error) {
@@ -170,12 +284,14 @@ export function useDashboard(): DashboardState {
       },
       onEvent: (event) => {
         const now = Date.now()
+        if (shouldRefetchSignal(event.type)) {
+          void refreshSignalViews()
+        }
         setState((prev) => {
-          const events = [event, ...prev.events].slice(0, MAX_EVENTS)
+          const events = mergeEventsNewestFirst(prev.events, [event])
           let framesReceived = prev.framesReceived
           let latestSequence = prev.latestSequence
           let latestFrameTimestamp = prev.latestFrameTimestamp
-          let framesPerSecond = prev.framesPerSecond
 
           if (isFrameEvent(event.type)) {
             const sequence = numberField(event.payload.sequence)
@@ -188,14 +304,15 @@ export function useDashboard(): DashboardState {
               latestFrameTimestamp = capture
             }
             frameTimesRef.current = [...frameTimesRef.current, now].filter(
-              (time) => now - time <= 5_000,
+              (time) => now - time <= FPS_WINDOW_MS,
             )
-            const times = frameTimesRef.current
-            if (times.length >= 2) {
-              const spanMs = times[times.length - 1]! - times[0]!
-              framesPerSecond = spanMs > 0 ? ((times.length - 1) * 1000) / spanMs : null
-            }
           }
+
+          const framesPerSecond = computeFps(
+            frameTimesRef.current,
+            now,
+            replayCompletedRef.current || prev.csiReplay?.completion === 'completed',
+          )
 
           return {
             ...prev,
@@ -217,7 +334,7 @@ export function useDashboard(): DashboardState {
       clearInterval(poll)
       stream.disconnect()
     }
-  }, [refreshRest])
+  }, [refreshRest, refreshSignalViews])
 
   return state
 }

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use aeryon_csi_replay::{CsiReplayCompletion, CsiReplayStats};
+use aeryon_dsp::{DspStats, DspWorkerState};
 use aeryon_plugin_runtime::LifecycleState;
 
 use crate::calibration_stats::CalibrationStats;
@@ -26,6 +27,8 @@ pub struct RuntimeMetrics {
     csi_replay: Arc<CsiReplayStats>,
     /// Dedicated calibration statistics (shared with the calibration worker).
     calibration: Arc<CalibrationStats>,
+    /// Dedicated DSP statistics (shared with the DSP worker).
+    dsp: Arc<DspStats>,
 }
 
 impl Default for RuntimeMetrics {
@@ -49,6 +52,7 @@ impl RuntimeMetrics {
             csi_started_at: std::sync::Mutex::new(None),
             csi_replay: CsiReplayStats::new().shared(),
             calibration: CalibrationStats::new().shared(),
+            dsp: DspStats::new().shared(),
         }
     }
 
@@ -65,6 +69,11 @@ impl RuntimeMetrics {
     /// Returns the shared calibration statistics handle.
     pub fn calibration(&self) -> &Arc<CalibrationStats> {
         &self.calibration
+    }
+
+    /// Returns the shared DSP statistics handle.
+    pub fn dsp(&self) -> &Arc<DspStats> {
+        &self.dsp
     }
 
     /// Records that the event consumer task is running.
@@ -156,6 +165,10 @@ impl RuntimeMetrics {
             return calibration_health;
         }
 
+        if let Some(dsp_health) = evaluate_dsp_health(&self.dsp) {
+            return dsp_health;
+        }
+
         if synthetic_enabled {
             match self.evaluate_source_health(
                 self.sensor_lifecycle(),
@@ -215,6 +228,28 @@ impl RuntimeMetrics {
             | None => RuntimeHealth::Running,
         }
     }
+}
+
+fn evaluate_dsp_health(stats: &DspStats) -> Option<RuntimeHealth> {
+    if !stats.enabled() {
+        return None;
+    }
+    if stats.unexpected_exit() || stats.worker_state() == DspWorkerState::Failed {
+        return Some(RuntimeHealth::Failed);
+    }
+    // Finite completion / idle after EOF must not be treated as failure.
+    if matches!(
+        stats.worker_state(),
+        DspWorkerState::Completed | DspWorkerState::Idle | DspWorkerState::Stopped
+    ) {
+        return None;
+    }
+    let failures = stats.windows_rejected();
+    let successes = stats.windows_emitted();
+    if stats.consecutive_failures() >= 3 && failures > successes {
+        return Some(RuntimeHealth::Degraded);
+    }
+    None
 }
 
 fn lifecycle_to_u64(state: LifecycleState) -> u64 {

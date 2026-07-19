@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Milestone M3.3: temporal CSI windowing and Signal Observatory — `baseline-dsp-v1` motion-energy proxy + Hann/FFT spectra, DSP worker and stats, signal snapshot store, recent event history, REST/WebSocket DSP surfaces, and dashboard charts over deterministic fixture data
+- API endpoints `GET /api/v1/dsp`, `GET /api/v1/signal/latest`, `GET /api/v1/dsp/latest`, `GET /api/v1/events/recent`
 - Milestone M3.2: configurable CSI calibration pipeline (`aeryon-calibration`) with baseline-csi-v1 stages (spatial phase unwrap, linear phase detrend, RMS amplitude normalize), runtime worker, `GET /api/v1/calibration`, WebSocket calibration metadata events, and dashboard calibration panel
 - Bounded CSI frame data path from replay → calibration (event bus remains metadata-only)
 - Milestone M3.1: canonical CSI frame (`aeryon-csi`), versioned development fixture format, CSI replay plugin, REST/WebSocket metadata, and dashboard source visibility

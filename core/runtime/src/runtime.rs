@@ -6,6 +6,7 @@ use std::time::Duration;
 use aeryon_calibration::CalibrationPipeline;
 use aeryon_csi_replay::{CsiReplayPlugin, PLUGIN_ID as CSI_REPLAY_PLUGIN_ID};
 use aeryon_domain::Event;
+use aeryon_dsp::{DspService, DspWorkerState};
 use aeryon_events::EventBus;
 use aeryon_plugin_runtime::{LifecycleState, PluginId, PluginRuntime};
 use aeryon_synthetic_sensor::{PLUGIN_ID as SYNTHETIC_PLUGIN_ID, SyntheticSensorPlugin};
@@ -19,6 +20,7 @@ use crate::error::{LoggingError, RuntimeError};
 use crate::health::RuntimeHealth;
 use crate::logging::init_logging;
 use crate::metrics::RuntimeMetrics;
+use crate::signal_store::SignalSnapshotStore;
 
 /// Coordinates application startup, shutdown, and health reporting.
 pub struct Runtime {
@@ -26,6 +28,7 @@ pub struct Runtime {
     health: RuntimeHealth,
     consumer_task: Option<JoinHandle<()>>,
     calibration_service: Option<CalibrationService>,
+    dsp_service: Option<DspService>,
 }
 
 impl Runtime {
@@ -45,6 +48,7 @@ impl Runtime {
 
         let event_bus = EventBus::new();
         let metrics = RuntimeMetrics::new().shared();
+        let signal_store = SignalSnapshotStore::default().shared();
         let plugin_runtime = PluginRuntime::new();
 
         tracing::info!(
@@ -58,6 +62,7 @@ impl Runtime {
             plugin_runtime,
             event_bus,
             metrics,
+            signal_store,
             env!("CARGO_PKG_VERSION"),
         );
 
@@ -66,6 +71,7 @@ impl Runtime {
             health: RuntimeHealth::Starting,
             consumer_task: None,
             calibration_service: None,
+            dsp_service: None,
         })
     }
 
@@ -97,6 +103,31 @@ impl Runtime {
                 .metrics
                 .calibration()
                 .set_worker_state(CalibrationWorkerState::Disabled);
+        }
+
+        // Configure DSP stats for API visibility even when disabled.
+        if self.context.config.dsp.enabled {
+            if let Ok(profile) = self.context.config.dsp.resolve_profile() {
+                self.context.metrics.dsp().configure(
+                    true,
+                    Some(&profile.id),
+                    profile.version,
+                    self.context.config.dsp.window_size_frames,
+                    self.context.config.dsp.hop_size_frames,
+                );
+            }
+        } else {
+            self.context.metrics.dsp().configure(
+                false,
+                None,
+                0,
+                self.context.config.dsp.window_size_frames,
+                self.context.config.dsp.hop_size_frames,
+            );
+            self.context
+                .metrics
+                .dsp()
+                .set_worker_state(DspWorkerState::Disabled);
         }
 
         if self.context.config.plugins.enabled {
@@ -157,6 +188,14 @@ impl Runtime {
             }
         }
 
+        if let Some(mut service) = self.dsp_service.take() {
+            service.shutdown();
+            self.context
+                .metrics
+                .dsp()
+                .set_worker_state(DspWorkerState::Stopped);
+        }
+
         if let Some(mut service) = self.calibration_service.take() {
             service.shutdown();
             self.context
@@ -215,10 +254,15 @@ impl Runtime {
         &self.context.metrics
     }
 
+    /// Returns the bounded signal snapshot store.
+    pub fn signal_store(&self) -> &Arc<SignalSnapshotStore> {
+        &self.context.signal_store
+    }
+
     /// Returns a concise startup summary for operator output.
     pub fn startup_summary(&self) -> String {
         format!(
-            "Aeryon {} | environment={} | plugins={} | synthetic={} | csi_replay={} | calibration={} | status={}",
+            "Aeryon {} | environment={} | plugins={} | synthetic={} | csi_replay={} | calibration={} | dsp={} | status={}",
             self.context.version,
             self.context.config.application.environment,
             if self.context.config.plugins.enabled {
@@ -241,6 +285,11 @@ impl Runtime {
             } else {
                 "disabled"
             },
+            if self.context.config.dsp.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
             self.health
         )
     }
@@ -248,6 +297,7 @@ impl Runtime {
     fn start_event_consumer(&mut self) {
         let mut receiver = self.context.event_bus.subscribe();
         let metrics = Arc::clone(&self.context.metrics);
+        let signal_store = Arc::clone(&self.context.signal_store);
         let log_every = self
             .context
             .config
@@ -260,100 +310,153 @@ impl Runtime {
         self.consumer_task = Some(tokio::spawn(async move {
             loop {
                 match receiver.recv().await {
-                    Ok(Event::FrameReceived(frame)) => {
-                        metrics.record_frame(frame.sequence, frame.timestamp.as_nanos());
-                        tracing::debug!(
-                            sequence = frame.sequence,
-                            frame_id = frame.frame_id.value(),
-                            sensor_id = frame.sensor_id.value(),
-                            "frame event received"
-                        );
-                        let count = metrics.frames_received();
-                        if count > 0 && count % log_every == 0 {
-                            tracing::info!(
-                                frames = count,
-                                last_sequence = frame.sequence,
-                                "frame event progress"
-                            );
+                    Ok(event) => {
+                        signal_store.push_event(event.clone());
+                        match event {
+                            Event::FrameReceived(frame) => {
+                                metrics.record_frame(frame.sequence, frame.timestamp.as_nanos());
+                                tracing::debug!(
+                                    sequence = frame.sequence,
+                                    frame_id = frame.frame_id.value(),
+                                    sensor_id = frame.sensor_id.value(),
+                                    "frame event received"
+                                );
+                                let count = metrics.frames_received();
+                                if count > 0 && count % log_every == 0 {
+                                    tracing::info!(
+                                        frames = count,
+                                        last_sequence = frame.sequence,
+                                        "frame event progress"
+                                    );
+                                }
+                            }
+                            Event::CsiFrameReceived(frame) => {
+                                metrics.record_frame(
+                                    frame.sequence,
+                                    frame.capture_timestamp.as_nanos(),
+                                );
+                                tracing::debug!(
+                                    sequence = frame.sequence,
+                                    frame_id = frame.frame_id.value(),
+                                    sensor_id = frame.sensor_id.value(),
+                                    source = frame.source.as_str(),
+                                    "CSI frame event received"
+                                );
+                            }
+                            Event::SensorStarted(event) => {
+                                tracing::info!(
+                                    sensor_id = event.sensor_id.value(),
+                                    "sensor started event"
+                                );
+                            }
+                            Event::SensorStopped(event) => {
+                                tracing::info!(
+                                    sensor_id = event.sensor_id.value(),
+                                    "sensor stopped event"
+                                );
+                            }
+                            Event::SensorFailed(event) => {
+                                tracing::error!(
+                                    sensor_id = event.sensor_id.value(),
+                                    kind = ?event.kind,
+                                    "sensor failed event"
+                                );
+                                metrics.set_sensor_lifecycle(LifecycleState::Failed);
+                            }
+                            Event::CsiReplayStarted(event) => {
+                                tracing::info!(
+                                    sensor_id = event.sensor_id.value(),
+                                    "CSI replay started event"
+                                );
+                            }
+                            Event::CsiReplayCompleted(event) => {
+                                tracing::info!(
+                                    sensor_id = event.sensor_id.value(),
+                                    frames = event.frames_accepted,
+                                    "CSI replay completed event"
+                                );
+                            }
+                            Event::CsiReplayStopped(event) => {
+                                tracing::info!(
+                                    sensor_id = event.sensor_id.value(),
+                                    "CSI replay stopped event"
+                                );
+                            }
+                            Event::CsiReplayFailed(event) => {
+                                tracing::error!(
+                                    sensor_id = event.sensor_id.value(),
+                                    kind = ?event.kind,
+                                    "CSI replay failed event"
+                                );
+                                metrics.set_csi_lifecycle(LifecycleState::Failed);
+                            }
+                            Event::CalibrationStarted(event) => {
+                                tracing::info!(
+                                    profile = %event.profile_id,
+                                    version = event.profile_version,
+                                    "calibration started event"
+                                );
+                            }
+                            Event::CsiFrameCalibrated(event) => {
+                                tracing::debug!(
+                                    sequence = event.sequence,
+                                    frame_id = event.raw_frame_id.value(),
+                                    duration_ns = event.calibration_duration_ns,
+                                    "CSI frame calibrated event"
+                                );
+                            }
+                            Event::CalibrationFailed(event) => {
+                                tracing::warn!(
+                                    sequence = ?event.sequence,
+                                    code = event.code.as_str(),
+                                    "calibration failed event"
+                                );
+                            }
+                            Event::CalibrationServiceStopped(_) => {
+                                tracing::info!("calibration service stopped event");
+                            }
+                            Event::DspServiceStarted(event) => {
+                                tracing::info!(
+                                    profile = %event.profile_id,
+                                    version = event.profile_version,
+                                    "DSP service started event"
+                                );
+                            }
+                            Event::CsiWindowAssembled(event) => {
+                                tracing::debug!(
+                                    window_id = event.window_id,
+                                    first = event.first_sequence,
+                                    last = event.last_sequence,
+                                    "CSI window assembled event"
+                                );
+                            }
+                            Event::DspWindowProcessed(event) => {
+                                tracing::debug!(
+                                    window_id = event.window_id,
+                                    first = event.first_sequence,
+                                    last = event.last_sequence,
+                                    duration_ns = event.processing_duration_ns,
+                                    "DSP window processed event"
+                                );
+                            }
+                            Event::DspProcessingFailed(event) => {
+                                tracing::warn!(
+                                    code = event.code.as_str(),
+                                    "DSP processing failed event"
+                                );
+                            }
+                            Event::DspServiceIdle(event) => {
+                                tracing::info!(
+                                    completed = event.completed,
+                                    "DSP service idle/completed event"
+                                );
+                            }
+                            Event::DspServiceStopped(_) => {
+                                tracing::info!("DSP service stopped event");
+                            }
+                            _ => {}
                         }
                     }
-                    Ok(Event::CsiFrameReceived(frame)) => {
-                        metrics.record_frame(frame.sequence, frame.capture_timestamp.as_nanos());
-                        tracing::debug!(
-                            sequence = frame.sequence,
-                            frame_id = frame.frame_id.value(),
-                            sensor_id = frame.sensor_id.value(),
-                            source = frame.source.as_str(),
-                            "CSI frame event received"
-                        );
-                    }
-                    Ok(Event::SensorStarted(event)) => {
-                        tracing::info!(sensor_id = event.sensor_id.value(), "sensor started event");
-                    }
-                    Ok(Event::SensorStopped(event)) => {
-                        tracing::info!(sensor_id = event.sensor_id.value(), "sensor stopped event");
-                    }
-                    Ok(Event::SensorFailed(event)) => {
-                        tracing::error!(
-                            sensor_id = event.sensor_id.value(),
-                            kind = ?event.kind,
-                            "sensor failed event"
-                        );
-                        metrics.set_sensor_lifecycle(LifecycleState::Failed);
-                    }
-                    Ok(Event::CsiReplayStarted(event)) => {
-                        tracing::info!(
-                            sensor_id = event.sensor_id.value(),
-                            "CSI replay started event"
-                        );
-                    }
-                    Ok(Event::CsiReplayCompleted(event)) => {
-                        tracing::info!(
-                            sensor_id = event.sensor_id.value(),
-                            frames = event.frames_accepted,
-                            "CSI replay completed event"
-                        );
-                    }
-                    Ok(Event::CsiReplayStopped(event)) => {
-                        tracing::info!(
-                            sensor_id = event.sensor_id.value(),
-                            "CSI replay stopped event"
-                        );
-                    }
-                    Ok(Event::CsiReplayFailed(event)) => {
-                        tracing::error!(
-                            sensor_id = event.sensor_id.value(),
-                            kind = ?event.kind,
-                            "CSI replay failed event"
-                        );
-                        metrics.set_csi_lifecycle(LifecycleState::Failed);
-                    }
-                    Ok(Event::CalibrationStarted(event)) => {
-                        tracing::info!(
-                            profile = %event.profile_id,
-                            version = event.profile_version,
-                            "calibration started event"
-                        );
-                    }
-                    Ok(Event::CsiFrameCalibrated(event)) => {
-                        tracing::debug!(
-                            sequence = event.sequence,
-                            frame_id = event.raw_frame_id.value(),
-                            duration_ns = event.calibration_duration_ns,
-                            "CSI frame calibrated event"
-                        );
-                    }
-                    Ok(Event::CalibrationFailed(event)) => {
-                        tracing::warn!(
-                            sequence = ?event.sequence,
-                            code = event.code.as_str(),
-                            "calibration failed event"
-                        );
-                    }
-                    Ok(Event::CalibrationServiceStopped(_)) => {
-                        tracing::info!("calibration service stopped event");
-                    }
-                    Ok(_) => {}
                     Err(aeryon_events::BusError::Closed) => break,
                     Err(aeryon_events::BusError::Lagged(n)) => {
                         tracing::warn!(lagged = n, "event consumer lagged");
@@ -400,6 +503,31 @@ impl Runtime {
 
     fn start_csi_replay(&mut self) -> Result<(), RuntimeError> {
         let mut frame_tx = None;
+        let mut calibrated_tx = None;
+
+        if self.context.config.dsp.enabled {
+            let profile = self
+                .context
+                .config
+                .dsp
+                .resolve_profile()
+                .map_err(crate::error::ConfigError::Dsp)?;
+            let mut service = DspService::start(
+                self.context.event_bus.clone(),
+                self.context.config.dsp.clone(),
+                profile,
+                Arc::clone(self.context.metrics.dsp()),
+                Some(Arc::clone(&self.context.signal_store) as Arc<dyn aeryon_dsp::DspResultSink>),
+            )
+            .map_err(crate::error::ConfigError::Dsp)?;
+            calibrated_tx = service.take_frame_tx();
+            self.dsp_service = Some(service);
+            tracing::info!(
+                profile = %self.context.config.dsp.profile,
+                "DSP service started"
+            );
+        }
+
         if self.context.config.calibration.enabled {
             let profile = self
                 .context
@@ -414,6 +542,8 @@ impl Runtime {
                 pipeline,
                 Arc::clone(self.context.metrics.calibration()),
                 self.context.config.calibration.queue_capacity,
+                calibrated_tx,
+                Some(Arc::clone(&self.context.signal_store)),
             )?;
             frame_tx = service.take_frame_tx();
             self.calibration_service = Some(service);
@@ -445,6 +575,9 @@ impl Runtime {
                 Ok(())
             }
             Err(error) => {
+                if let Some(mut service) = self.dsp_service.take() {
+                    service.shutdown();
+                }
                 if let Some(mut service) = self.calibration_service.take() {
                     service.shutdown();
                 }
@@ -536,12 +669,21 @@ mod tests {
             path = "{path}"
             loop_playback = false
             frame_interval_ms = 10
-            maximum_frames = 5
+            maximum_frames = 12
 
             [calibration]
             enabled = true
             profile = "baseline-csi-v1"
             queue_capacity = 64
+
+            [dsp]
+            enabled = true
+            profile = "baseline-dsp-v1"
+            queue_capacity = 64
+            window_size_frames = 8
+            hop_size_frames = 4
+            maximum_sequence_gap = 1
+            timestamp_jitter_tolerance = 0.10
             "#
         ))
         .expect("valid csi config")
@@ -554,13 +696,14 @@ mod tests {
             r#"{{"record_type":"header","schema":"aeryon-csi-fixture","version":1,"sensor_id":"2","description":"runtime test","sample_layout":"rx-tx-subcarrier"}}"#
         )
         .expect("header");
-        for sequence in 0..8 {
+        for sequence in 0..16 {
             writeln!(
                 file,
-                r#"{{"record_type":"frame","frame_id":{},"sequence":{},"capture_timestamp_nanos":{},"center_frequency_hz":5180000000.0,"bandwidth_hz":20000000.0,"receive_antennas":2,"transmit_antennas":1,"subcarrier_indices":[0,1],"samples":[{{"re":1.0,"im":0.0}},{{"re":0.0,"im":1.0}},{{"re":2.0,"im":0.0}},{{"re":0.0,"im":2.0}}]}}"#,
+                r#"{{"record_type":"frame","frame_id":{},"sequence":{},"capture_timestamp_nanos":{},"center_frequency_hz":5180000000.0,"bandwidth_hz":20000000.0,"receive_antennas":2,"transmit_antennas":1,"subcarrier_indices":[0,1],"samples":[{{"re":{},"im":0.0}},{{"re":0.0,"im":1.0}},{{"re":2.0,"im":0.0}},{{"re":0.0,"im":2.0}}]}}"#,
                 sequence + 1,
                 sequence,
-                1_000 + sequence
+                1_700_000_000_000_000_000u64 + sequence * 100_000_000,
+                1.0 + (sequence as f64) * 0.05
             )
             .expect("frame");
         }
@@ -736,6 +879,118 @@ mod tests {
             runtime.metrics().calibration().worker_state(),
             CalibrationWorkerState::Stopped
         );
+        assert_eq!(
+            runtime
+                .context()
+                .plugin_runtime
+                .lifecycle_state(&PluginId::new(CSI_REPLAY_PLUGIN_ID)),
+            Some(LifecycleState::Stopped)
+        );
+    }
+
+    #[tokio::test]
+    async fn dsp_end_to_end_with_calibration_and_csi_replay() {
+        let fixture = write_csi_fixture();
+        let path = fixture.path().to_string_lossy().replace('\\', "/");
+        let mut runtime = Runtime::boot(csi_test_config(&path)).expect("boot");
+        let mut receiver = runtime.context().event_bus.subscribe();
+        runtime.start().expect("start");
+
+        let mut processed = Vec::new();
+        let mut completed_replay = false;
+        let mut dsp_idle = false;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+        while tokio::time::Instant::now() < deadline {
+            match timeout(Duration::from_millis(500), receiver.recv()).await {
+                Ok(Ok(Event::DspWindowProcessed(event))) => {
+                    assert_eq!(event.profile_id, "baseline-dsp-v1");
+                    assert!(event.frame_count >= 8);
+                    assert!(event.effective_sample_rate_hz.is_finite());
+                    assert!(event.effective_sample_rate_hz > 0.0);
+                    assert!(event.timestamp_jitter.is_finite());
+                    processed.push((event.first_sequence, event.last_sequence));
+                }
+                Ok(Ok(Event::CsiReplayCompleted(_))) => completed_replay = true,
+                Ok(Ok(Event::DspServiceIdle(event))) => {
+                    assert!(event.completed);
+                    dsp_idle = true;
+                }
+                Ok(Ok(_)) => {}
+                _ => {
+                    if completed_replay && dsp_idle && !processed.is_empty() {
+                        break;
+                    }
+                }
+            }
+            if completed_replay && dsp_idle && !processed.is_empty() {
+                break;
+            }
+        }
+
+        assert!(
+            !processed.is_empty(),
+            "expected at least one DSP window, got {processed:?}"
+        );
+        assert!(
+            processed.windows(2).all(|pair| pair[1].0 >= pair[0].0),
+            "window order not preserved: {processed:?}"
+        );
+        assert!(runtime.metrics().dsp().windows_emitted() >= 1);
+        assert!(runtime.metrics().dsp().calibrated_frames_received() >= 8);
+
+        let result = runtime
+            .signal_store()
+            .latest_dsp()
+            .expect("latest DSP result stored");
+        assert!(
+            result
+                .motion_energy
+                .signal
+                .links
+                .iter()
+                .flat_map(|link| link.values.iter())
+                .all(|value| value.is_finite())
+        );
+        assert!(
+            result
+                .spectra
+                .links
+                .iter()
+                .flat_map(|link| link.power.iter())
+                .all(|value| value.is_finite())
+        );
+        assert!(runtime.signal_store().latest_calibrated().is_some());
+        assert!(runtime.signal_store().latest_raw().is_some());
+        assert!(!runtime.signal_store().recent_events(50).is_empty());
+
+        // Allow workers to observe channel EOF after finite replay.
+        timeout(Duration::from_secs(2), async {
+            loop {
+                let dsp_state = runtime.metrics().dsp().worker_state();
+                if matches!(dsp_state, DspWorkerState::Completed | DspWorkerState::Idle) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("dsp completion");
+
+        assert!(
+            matches!(
+                runtime.metrics().dsp().worker_state(),
+                DspWorkerState::Completed | DspWorkerState::Idle
+            ),
+            "DSP should be completed/idle after finite replay, got {:?}",
+            runtime.metrics().dsp().worker_state()
+        );
+        assert_ne!(
+            runtime.metrics().dsp().worker_state(),
+            DspWorkerState::Failed
+        );
+
+        runtime.shutdown().expect("shutdown");
+        assert!(!runtime.metrics().consumer_running());
         assert_eq!(
             runtime
                 .context()

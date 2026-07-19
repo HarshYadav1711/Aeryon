@@ -1,9 +1,13 @@
 import type {
   CalibrationSnapshot,
   CsiReplaySnapshot,
+  DspLatestResponse,
+  DspSnapshot,
   HealthResponse,
   PluginsResponse,
+  RecentEventsResponse,
   RuntimeSnapshot,
+  SignalLatestResponse,
   SyntheticSensorSnapshot,
 } from './types'
 
@@ -60,6 +64,26 @@ async function getJson<T>(path: string): Promise<T> {
   return body as T
 }
 
+export type LinkParams = {
+  rx?: number
+  tx?: number
+}
+
+function linkQuery(params?: LinkParams): string {
+  if (!params) {
+    return ''
+  }
+  const search = new URLSearchParams()
+  if (params.rx !== undefined) {
+    search.set('rx', String(params.rx))
+  }
+  if (params.tx !== undefined) {
+    search.set('tx', String(params.tx))
+  }
+  const qs = search.toString()
+  return qs ? `?${qs}` : ''
+}
+
 export const apiClient = {
   getHealth(): Promise<HealthResponse> {
     return getJson<HealthResponse>('/health')
@@ -78,5 +102,17 @@ export const apiClient = {
   },
   getCalibration(): Promise<CalibrationSnapshot> {
     return getJson<CalibrationSnapshot>('/api/v1/calibration')
+  },
+  getDsp(): Promise<DspSnapshot> {
+    return getJson<DspSnapshot>('/api/v1/dsp')
+  },
+  getSignalLatest(params?: LinkParams): Promise<SignalLatestResponse> {
+    return getJson<SignalLatestResponse>(`/api/v1/signal/latest${linkQuery(params)}`)
+  },
+  getDspLatest(params?: LinkParams): Promise<DspLatestResponse> {
+    return getJson<DspLatestResponse>(`/api/v1/dsp/latest${linkQuery(params)}`)
+  },
+  getRecentEvents(limit = 50): Promise<RecentEventsResponse> {
+    return getJson<RecentEventsResponse>(`/api/v1/events/recent?limit=${limit}`)
   },
 }
