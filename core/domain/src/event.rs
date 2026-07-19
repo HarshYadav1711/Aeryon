@@ -241,6 +241,12 @@ pub struct DspServiceStarted {
     pub window_size_frames: u32,
     /// Hop size in frames.
     pub hop_size_frames: u32,
+    /// Selected kernel backend identifier (`rust` or `cpp`).
+    pub backend_id: String,
+    /// Backend implementation version.
+    pub backend_version: String,
+    /// Native ABI version when the C++ backend is active.
+    pub backend_abi_version: Option<u32>,
 }
 
 /// A temporal CSI window was assembled (metadata only).
@@ -294,6 +300,10 @@ pub struct DspWindowProcessed {
 pub enum DspFailureCode {
     /// Profile or configuration validation failed.
     InvalidConfig,
+    /// Requested DSP kernel backend is unavailable.
+    BackendUnavailable,
+    /// Native DSP kernel status mapping failure.
+    NativeKernel,
     /// Window geometry or temporal invariants failed.
     InvalidWindow,
     /// Sensor mismatch across frames.
@@ -331,6 +341,8 @@ impl DspFailureCode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidConfig => "invalid_config",
+            Self::BackendUnavailable => "backend_unavailable",
+            Self::NativeKernel => "native_kernel",
             Self::InvalidWindow => "invalid_window",
             Self::SensorMismatch => "sensor_mismatch",
             Self::GeometryMismatch => "geometry_mismatch",

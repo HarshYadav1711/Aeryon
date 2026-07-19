@@ -359,6 +359,18 @@ impl AppState {
             average_duration_ns: stats.average_duration_ns(),
             last_warning: stats.last_warning(),
             last_error: stats.last_error(),
+            configured_backend: Some(config.backend.as_str().to_owned()),
+            active_backend: stats.active_backend(),
+            backend_display_name: Some(config.backend.display_name().to_owned()),
+            backend_version: stats.backend_version(),
+            backend_abi_version: stats.backend_abi_version(),
+            backend_available: if config.enabled {
+                config.backend.is_compiled() && stats.backend_available()
+            } else {
+                config.backend.is_compiled()
+            },
+            backend_init_status: stats.backend_init_status(),
+            last_backend_error: stats.last_backend_error(),
             data_classification: PIPELINE_DATA_CLASSIFICATION,
         }
     }

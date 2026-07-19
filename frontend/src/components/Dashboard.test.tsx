@@ -113,6 +113,14 @@ const dspDisabled: DspSnapshot = {
   latest_dominant_non_dc_hz: null,
   last_duration_ns: null,
   average_duration_ns: null,
+  configured_backend: 'rust',
+  active_backend: null,
+  backend_display_name: 'Rust reference backend',
+  backend_version: '1.0.0',
+  backend_abi_version: null,
+  backend_available: true,
+  backend_init_status: 'pending',
+  last_backend_error: null,
   data_classification: 'csi_replay_development_source',
 }
 

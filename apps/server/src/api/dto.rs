@@ -474,6 +474,29 @@ pub struct DspSnapshot {
     /// Last error summary.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<String>,
+    /// Configured kernel backend identifier (`rust` or `cpp`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_backend: Option<String>,
+    /// Active kernel backend identifier when initialized.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_backend: Option<String>,
+    /// Human-readable backend display name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_display_name: Option<String>,
+    /// Backend implementation version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_version: Option<String>,
+    /// Native ABI version when the C++ backend is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_abi_version: Option<u32>,
+    /// Whether the configured backend is compiled and available.
+    pub backend_available: bool,
+    /// Backend initialization status label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_init_status: Option<String>,
+    /// Last backend-specific error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_backend_error: Option<String>,
     /// Data source honesty label.
     pub data_classification: &'static str,
 }
@@ -715,6 +738,13 @@ pub struct DspServiceStartedPayload {
     pub window_size_frames: u32,
     /// Hop size in frames.
     pub hop_size_frames: u32,
+    /// Selected kernel backend identifier.
+    pub backend_id: String,
+    /// Backend implementation version.
+    pub backend_version: String,
+    /// Native ABI version when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend_abi_version: Option<u32>,
     /// Honesty label.
     pub data_classification: &'static str,
 }

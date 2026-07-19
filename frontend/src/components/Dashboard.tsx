@@ -466,6 +466,34 @@ export function Dashboard({
           </span>
         </div>
         <div className="status-cell">
+          <span className="status-label">DSP backend</span>
+          <span className="status-value" data-testid="dsp-backend">
+            {dsp?.backend_display_name
+              ?? (dsp?.active_backend === 'cpp'
+                ? 'C++ native backend'
+                : dsp?.active_backend === 'rust'
+                  ? 'Rust reference backend'
+                  : '—')}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Backend version</span>
+          <span className="status-value" data-testid="dsp-backend-version">
+            {dsp?.backend_version ?? '—'}
+            {dsp?.backend_abi_version != null ? ` (ABI ${dsp.backend_abi_version})` : ''}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Backend health</span>
+          <span className="status-value" data-testid="dsp-backend-health">
+            {!dsp?.enabled
+              ? '—'
+              : dsp.backend_available
+                ? (dsp.backend_init_status ?? 'ok')
+                : (dsp.last_backend_error ?? 'unavailable')}
+          </span>
+        </div>
+        <div className="status-cell">
           <span className="status-label">Latest sequence</span>
           <span className="status-value" data-testid="latest-sequence">
             {latestSequence ?? '—'}
@@ -689,7 +717,7 @@ export function Dashboard({
             empty={dspDisabled || !hasMotion}
             loading={!dspDisabled && dspLatestLoading}
             error={dspDisabled ? 'DSP disabled' : null}
-            annotation="Channel-change proxy — not human-motion classification."
+            annotation="Channel-change proxy — not human-motion classification. Backend selection uses identical DSP semantics and is validated through parity tests."
           />
 
           <LineChart

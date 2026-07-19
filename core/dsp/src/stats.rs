@@ -63,6 +63,14 @@ pub struct DspStats {
     last_warning: Mutex<Option<String>>,
     unexpected_exit: AtomicBool,
     consecutive_failures: AtomicU64,
+    configured_backend: Mutex<Option<String>>,
+    active_backend: Mutex<Option<String>>,
+    backend_version: Mutex<Option<String>>,
+    backend_abi_version: AtomicU64,
+    has_backend_abi: AtomicBool,
+    backend_available: AtomicBool,
+    backend_init_status: Mutex<Option<String>>,
+    last_backend_error: Mutex<Option<String>>,
 }
 
 impl DspStats {
@@ -102,6 +110,103 @@ impl DspStats {
         }
     }
 
+    /// Records selected/active backend identity and health.
+    pub fn set_backend_identity(
+        &self,
+        backend_id: &str,
+        implementation_version: &str,
+        abi_version: Option<u32>,
+        available: bool,
+        init_status: &str,
+        last_error: Option<String>,
+    ) {
+        if let Ok(mut guard) = self.configured_backend.lock() {
+            *guard = Some(backend_id.to_owned());
+        }
+        if let Ok(mut guard) = self.active_backend.lock() {
+            *guard = if available {
+                Some(backend_id.to_owned())
+            } else {
+                None
+            };
+        }
+        if let Ok(mut guard) = self.backend_version.lock() {
+            *guard = Some(implementation_version.to_owned());
+        }
+        match abi_version {
+            Some(version) => {
+                self.backend_abi_version
+                    .store(u64::from(version), Ordering::Relaxed);
+                self.has_backend_abi.store(true, Ordering::Relaxed);
+            }
+            None => {
+                self.backend_abi_version.store(0, Ordering::Relaxed);
+                self.has_backend_abi.store(false, Ordering::Relaxed);
+            }
+        }
+        self.backend_available.store(available, Ordering::Relaxed);
+        if let Ok(mut guard) = self.backend_init_status.lock() {
+            *guard = Some(init_status.to_owned());
+        }
+        if let Ok(mut guard) = self.last_backend_error.lock() {
+            *guard = last_error;
+        }
+    }
+
+    /// Configured backend identifier.
+    pub fn configured_backend(&self) -> Option<String> {
+        self.configured_backend
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    /// Active backend identifier when initialized.
+    pub fn active_backend(&self) -> Option<String> {
+        self.active_backend
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    /// Backend implementation version.
+    pub fn backend_version(&self) -> Option<String> {
+        self.backend_version
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    /// Native ABI version when applicable.
+    pub fn backend_abi_version(&self) -> Option<u32> {
+        if self.has_backend_abi.load(Ordering::Relaxed) {
+            Some(self.backend_abi_version.load(Ordering::Relaxed) as u32)
+        } else {
+            None
+        }
+    }
+
+    /// Whether the configured backend is available.
+    pub fn backend_available(&self) -> bool {
+        self.backend_available.load(Ordering::Relaxed)
+    }
+
+    /// Backend initialization status label.
+    pub fn backend_init_status(&self) -> Option<String> {
+        self.backend_init_status
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    /// Last backend-specific error.
+    pub fn last_backend_error(&self) -> Option<String> {
+        self.last_backend_error
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
     /// Resets counters for a new service start.
     pub fn reset_counters(&self) {
         self.calibrated_frames_received.store(0, Ordering::Relaxed);
@@ -123,10 +228,28 @@ impl DspStats {
         self.has_dominant.store(false, Ordering::Relaxed);
         self.unexpected_exit.store(false, Ordering::Relaxed);
         self.consecutive_failures.store(0, Ordering::Relaxed);
+        self.backend_available.store(false, Ordering::Relaxed);
+        self.has_backend_abi.store(false, Ordering::Relaxed);
+        self.backend_abi_version.store(0, Ordering::Relaxed);
         if let Ok(mut guard) = self.last_error.lock() {
             *guard = None;
         }
         if let Ok(mut guard) = self.last_warning.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.configured_backend.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.active_backend.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.backend_version.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.backend_init_status.lock() {
+            *guard = None;
+        }
+        if let Ok(mut guard) = self.last_backend_error.lock() {
             *guard = None;
         }
     }

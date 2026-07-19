@@ -63,6 +63,12 @@ pub struct DspWindowResult {
     pub dsp_profile_id: String,
     /// DSP profile version.
     pub dsp_profile_version: u32,
+    /// Active kernel backend identifier (`rust` or `cpp`).
+    pub backend_id: String,
+    /// Backend implementation version.
+    pub backend_version: String,
+    /// Native ABI version when the C++ backend produced this result.
+    pub backend_abi_version: Option<u32>,
     /// Processing completion timestamp.
     pub processed_at: Timestamp,
     /// Processing duration in nanoseconds.

@@ -3,6 +3,7 @@
 use serde::Deserialize;
 
 use crate::assembler::AssemblerConfig;
+use crate::backend::DspBackendKind;
 use crate::errors::DspError;
 
 /// Built-in baseline DSP profile identity.
@@ -38,6 +39,8 @@ pub struct DspProfile {
     pub spectral_normalization: String,
     /// Timestamp jitter tolerance used for spectral gating.
     pub timestamp_jitter_tolerance: f64,
+    /// Selected numerical kernel backend.
+    pub backend: DspBackendKind,
 }
 
 impl DspProfile {
@@ -70,6 +73,7 @@ pub fn baseline_dsp_v1(
     window_size_frames: usize,
     hop_size_frames: usize,
     timestamp_jitter_tolerance: f64,
+    backend: DspBackendKind,
 ) -> DspProfile {
     DspProfile {
         id: BASELINE_DSP_V1_ID.to_owned(),
@@ -81,6 +85,7 @@ pub fn baseline_dsp_v1(
         fft_implementation: FFT_IMPLEMENTATION.to_owned(),
         spectral_normalization: SPECTRAL_NORMALIZATION.to_owned(),
         timestamp_jitter_tolerance,
+        backend,
     }
 }
 
@@ -93,6 +98,9 @@ pub struct DspConfig {
     /// Selected profile identity.
     #[serde(default = "default_profile")]
     pub profile: String,
+    /// Numerical kernel backend (`rust` or `cpp`).
+    #[serde(default)]
+    pub backend: DspBackendKind,
     /// Bounded calibrated-frame input queue capacity.
     #[serde(default = "default_queue_capacity")]
     pub queue_capacity: usize,
@@ -139,6 +147,7 @@ impl Default for DspConfig {
         Self {
             enabled: false,
             profile: default_profile(),
+            backend: DspBackendKind::Rust,
             queue_capacity: default_queue_capacity(),
             window_size_frames: default_window_size(),
             hop_size_frames: default_hop_size(),
@@ -159,6 +168,16 @@ impl DspConfig {
                 message: format!(
                     "unsupported DSP profile `{}`; only `{BASELINE_DSP_V1_ID}` is available",
                     self.profile
+                ),
+            });
+        }
+        if !self.backend.is_compiled() {
+            return Err(DspError::BackendUnavailable {
+                backend: self.backend,
+                message: format!(
+                    "DSP backend `{}` is not available in this build; rebuild with \
+                     `--features cpp-dsp` to enable the C++ backend",
+                    self.backend.as_str()
                 ),
             });
         }
@@ -196,6 +215,7 @@ impl DspConfig {
             self.window_size_frames,
             self.hop_size_frames,
             self.timestamp_jitter_tolerance,
+            self.backend,
         );
         profile.validate()?;
         Ok(profile)

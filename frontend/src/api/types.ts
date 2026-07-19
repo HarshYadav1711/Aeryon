@@ -146,6 +146,14 @@ export interface DspSnapshot {
   average_duration_ns: number | null
   last_warning?: string | null
   last_error?: string | null
+  configured_backend?: string | null
+  active_backend?: string | null
+  backend_display_name?: string | null
+  backend_version?: string | null
+  backend_abi_version?: number | null
+  backend_available: boolean
+  backend_init_status?: string | null
+  last_backend_error?: string | null
   data_classification: string
 }
 

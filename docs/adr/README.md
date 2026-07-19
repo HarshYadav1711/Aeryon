@@ -21,4 +21,6 @@ Status: proposed | accepted | deprecated | superseded
 
 ## Index
 
-No ADRs have been recorded yet.
+| ADR | Title | Status |
+|-----|-------|--------|
+| [0001](0001-rust-cpp-ffi-strategy.md) | Rust/C++ FFI strategy for DSP kernels | accepted |

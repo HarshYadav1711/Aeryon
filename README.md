@@ -20,7 +20,7 @@ Sensor Plugins → Acquisition → Calibration → DSP → Features → Inferenc
 
 - **Acquisition** ingests raw sensor frames from hardware or recorded datasets.
 - **Calibration** applies sensor-specific corrections and normalization.
-- **DSP** performs high-performance signal processing (C++ with Rust FFI).
+- **DSP** performs signal processing in Rust by default, with optional C++ numerical kernels via FFI (`cpp-dsp`).
 - **Features** extracts structured representations from processed signals.
 - **Inference** runs deterministic or learned models over feature streams.
 - **Perception** fuses multi-sensor outputs into scene-level interpretations.
@@ -35,7 +35,7 @@ Applications (`server`, `cli`) and the `frontend` consume the world model and ev
 | Layer | Language | Role |
 |-------|----------|------|
 | Platform core | Rust | Orchestration, interfaces, storage, plugins |
-| Signal processing | C++ | High-performance DSP kernels |
+| Signal processing | Rust (+ optional C++) | Reference DSP in Rust; optional C++ kernels via FFI |
 | Research / training | Python | Datasets, training, evaluation, notebooks |
 | User interface | React + TypeScript | Visualization and operator tooling |
 
@@ -97,7 +97,7 @@ scripts/             Build, CI, and maintenance scripts
 
 ## Current Status
 
-Milestone M3.3 is implemented: temporal CSI windowing and baseline spectral DSP (`baseline-dsp-v1`) assemble calibrated frames into windows, compute a motion-energy channel-change proxy, and produce Hann-windowed one-sided power spectra. Capture-timestamp intervals define frequency bins (not replay wall-clock speed). The Signal Observatory dashboard charts real fixture-derived amplitudes, phases, heatmaps, motion energy, and spectra. Motion energy is not human-motion classification; spectral peaks are not activity labels. Pure Rust (`rustfft`) is the current DSP baseline. Milestones M3.1–M3.2 remain intact. See [ROADMAP.md](ROADMAP.md).
+Milestone M3.4 adds an optional native DSP path: Rust remains the scientifically authoritative reference; C++ kernels are optional behind the `cpp-dsp` Cargo feature and `[dsp] backend = "rust"|"cpp"`. Parity is tested; performance claims require local benchmarks (FFI overhead may dominate small inputs). Milestone M3.3 remains: temporal CSI windowing and baseline spectral DSP (`baseline-dsp-v1`) assemble calibrated frames into windows, compute a motion-energy channel-change proxy, and produce Hann-windowed one-sided power spectra. Capture-timestamp intervals define frequency bins (not replay wall-clock speed). Motion energy is not human-motion classification; spectral peaks are not activity labels. Milestones M3.1–M3.2 remain intact. See [ROADMAP.md](ROADMAP.md).
 
 ## Development
 
@@ -137,6 +137,7 @@ queue_capacity = 64
 [dsp]
 enabled = true
 profile = "baseline-dsp-v1"
+backend = "rust"   # or "cpp" when built with --features cpp-dsp
 queue_capacity = 64
 window_size_frames = 16
 hop_size_frames = 4
@@ -144,7 +145,7 @@ maximum_sequence_gap = 1
 timestamp_jitter_tolerance = 0.10
 ```
 
-Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled. DSP requires calibration. Motion energy is a CSI channel-change proxy; spectra use capture timestamps and are not activity classification. Charts use deterministic replay fixture data. Set `dsp.enabled = false` to keep replay + calibration without DSP results.
+Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled. DSP requires calibration. Motion energy is a CSI channel-change proxy; spectra use capture timestamps and are not activity classification. Charts use deterministic replay fixture data. Set `dsp.enabled = false` to keep replay + calibration without DSP results. A build without `cpp-dsp` that sets `backend = "cpp"` fails configuration clearly (no silent Rust fallback).
 
 Terminal 2 — start the Vite frontend:
 
@@ -187,8 +188,14 @@ Frontend env (`frontend/.env.example`):
 - Motion energy measures channel change between consecutive calibrated frames; it is not occupancy or human-motion classification.
 - Spectral peaks are not interpreted as walking, breathing, or other activities in this milestone.
 - Frequency axes are derived from fixture capture timestamps, not browser arrival time or replay delay.
-- Pure Rust FFT is the current baseline; optimization follows profiling.
+- Pure Rust (`rustfft`) is the reference DSP implementation; optional C++ kernels must match within conformance tolerances.
 
+### DSP backends and FFI
+
+- **Rust** is the default reference backend (`[dsp] backend = "rust"`).
+- **C++** is optional: build with `--features cpp-dsp` and set `backend = "cpp"`.
+- Unsafe Rust is confined to `native/ffi` (`aeryon-dsp-ffi`); the C ABI uses caller-owned buffers, explicit lengths, and integer status codes.
+- Performance claims require measured benchmarks under `benchmarks/results/`. FFI overhead may make the native path slower for small inputs.
 
 ### Commands
 
@@ -196,12 +203,15 @@ Run from the repository root unless noted.
 
 | Task | Command |
 |------|---------|
-| Rust tests | `cargo test` or `scripts/cargo-test.ps1` |
+| Rust tests | `cargo test --workspace` or `scripts/cargo-test.ps1` |
+| Rust tests with C++ DSP | `cargo test --workspace --features aeryon-dsp/cpp-dsp,aeryon-runtime/cpp-dsp,aeryon-server/cpp-dsp` |
 | Rust format | `cargo fmt --all` or `scripts/cargo-fmt.ps1` |
 | Rust lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Run server | `cargo run --bin server` |
+| Server with C++ DSP | `cargo run --bin server --features cpp-dsp` |
 | CLI info | `cargo run -p aeryon-cli -- info` |
-| C++ build and test | `scripts/cmake-build.ps1` |
+| C++ build and test | `cmake -S native/cpp-dsp -B native/cpp-dsp/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/cpp-dsp/build && ctest --test-dir native/cpp-dsp/build --output-on-failure` (or `scripts/cmake-build.ps1`) |
+| DSP backend benches | `cargo bench -p aeryon-dsp --features cpp-dsp --bench dsp_backends` |
 | Python install | `python -m pip install ./ml` or `scripts/python-install.ps1` |
 | ML CLI | `aeryon-ml` |
 | Frontend install | `cd frontend && npm install` |

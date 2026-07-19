@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::assembler::WindowAssembler;
+use crate::backend::{DspKernelBackend, create_backend};
 use crate::errors::DspError;
 use crate::profile::{DspConfig, DspProfile};
 use crate::report::process_window;
@@ -49,6 +50,8 @@ impl DspService {
     ) -> Result<Self, DspError> {
         config.validate()?;
         profile.validate()?;
+        let backend = create_backend(config.backend)?;
+        let identity = backend.identity();
 
         let queue_capacity = config.queue_capacity.max(1);
         let (frame_tx, mut frame_rx) = mpsc::channel::<Arc<CalibratedCsiFrame>>(queue_capacity);
@@ -65,12 +68,24 @@ impl DspService {
             config.window_size_frames,
             config.hop_size_frames,
         );
+        stats.set_backend_identity(
+            identity.kind.as_str(),
+            &identity.implementation_version,
+            identity.abi_version,
+            true,
+            "ok",
+            None,
+        );
         stats.set_worker_state(DspWorkerState::Running);
 
         let profile_id = profile.id.clone();
         let profile_version = profile.version;
         let window_size_frames = config.window_size_frames as u32;
         let hop_size_frames = config.hop_size_frames as u32;
+        let backend_id = identity.kind.as_str().to_owned();
+        let backend_version = identity.implementation_version.clone();
+        let backend_abi_version = identity.abi_version;
+        let backend: Arc<dyn DspKernelBackend> = backend;
 
         let task = tokio::spawn(async move {
             let _ = bus.publish(Event::DspServiceStarted(DspServiceStarted {
@@ -79,6 +94,9 @@ impl DspService {
                 profile_version,
                 window_size_frames,
                 hop_size_frames,
+                backend_id,
+                backend_version,
+                backend_abi_version,
             }));
 
             let mut received_any = false;
@@ -99,7 +117,7 @@ impl DspService {
                             timestamp: now(),
                         }));
 
-                        match process_window(&window, &profile) {
+                        match process_window(&window, &profile, backend.as_ref()) {
                             Ok(result) => {
                                 if let Some(warning) = result.warnings.first() {
                                     stats.set_last_warning(warning.clone());
@@ -220,6 +238,8 @@ impl Drop for DspService {
 fn map_failure_code(error: &DspError) -> DspFailureCode {
     match error.code() {
         crate::errors::DspFailureCode::InvalidConfig => DspFailureCode::InvalidConfig,
+        crate::errors::DspFailureCode::BackendUnavailable => DspFailureCode::BackendUnavailable,
+        crate::errors::DspFailureCode::NativeKernel => DspFailureCode::NativeKernel,
         crate::errors::DspFailureCode::InvalidWindow => DspFailureCode::InvalidWindow,
         crate::errors::DspFailureCode::SensorMismatch => DspFailureCode::SensorMismatch,
         crate::errors::DspFailureCode::GeometryMismatch => DspFailureCode::GeometryMismatch,

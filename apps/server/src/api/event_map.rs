@@ -193,6 +193,9 @@ pub fn domain_event_to_envelope(
                 profile_version: event.profile_version,
                 window_size_frames: event.window_size_frames,
                 hop_size_frames: event.hop_size_frames,
+                backend_id: event.backend_id,
+                backend_version: event.backend_version,
+                backend_abi_version: event.backend_abi_version,
                 data_classification: PIPELINE_DATA_CLASSIFICATION,
             })
             .unwrap_or_else(|_| json!({})),

@@ -58,9 +58,11 @@ epsilon = 1.0e-8
 
 # Baseline temporal DSP (windowing → motion-energy proxy → Hann/FFT spectrum).
 # Frequencies use capture timestamps, not replay wall-clock speed.
+# backend = "rust" (default) or "cpp" when built with --features cpp-dsp.
 [dsp]
 enabled = true
 profile = "baseline-dsp-v1"
+backend = "rust"
 queue_capacity = 64
 window_size_frames = 16
 hop_size_frames = 4

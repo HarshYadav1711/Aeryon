@@ -15,6 +15,7 @@
 use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
 
+use crate::backend::{DspKernelBackend, RustKernelBackend};
 use crate::errors::{DspError, DspFailureCode};
 use crate::motion::LinkMotionEnergy;
 use crate::window::CsiWindow;
@@ -130,6 +131,23 @@ pub fn analyze_spectrum(
     aggregate: Option<&[f64]>,
     jitter_tolerance: f64,
 ) -> Result<SpectralAnalysis, DspError> {
+    analyze_spectrum_with_backend(
+        window,
+        motion,
+        aggregate,
+        jitter_tolerance,
+        &RustKernelBackend,
+    )
+}
+
+/// Spectral analysis using the provided kernel backend for temporal preprocessing.
+pub fn analyze_spectrum_with_backend(
+    window: &CsiWindow,
+    motion: &[LinkMotionEnergy],
+    aggregate: Option<&[f64]>,
+    jitter_tolerance: f64,
+    backend: &dyn DspKernelBackend,
+) -> Result<SpectralAnalysis, DspError> {
     let sampling = analyze_sampling(window)?;
     let mut warnings = Vec::new();
     if sampling.timestamp_jitter > jitter_tolerance {
@@ -148,6 +166,7 @@ pub fn analyze_spectrum(
             series.link,
             &series.values,
             sampling.effective_sample_rate_hz,
+            backend,
         )?);
     }
 
@@ -156,6 +175,7 @@ pub fn analyze_spectrum(
             AntennaLink::new(u16::MAX, u16::MAX),
             values,
             sampling.effective_sample_rate_hz,
+            backend,
         )?),
         None => None,
     };
@@ -176,6 +196,7 @@ fn spectrum_for_series(
     link: AntennaLink,
     signal: &[f64],
     sample_rate_hz: f64,
+    backend: &dyn DspKernelBackend,
 ) -> Result<LinkPowerSpectrum, DspError> {
     if signal.len() < 4 {
         return Err(DspError::Spectral {
@@ -197,8 +218,13 @@ fn spectrum_for_series(
     }
 
     let n = signal.len();
-    let mean = signal.iter().sum::<f64>() / n as f64;
-    let mut centered: Vec<f64> = signal.iter().map(|value| value - mean).collect();
+    let windowed = backend.center_and_apply_hann(signal)?;
+    if windowed.len() != n {
+        return Err(DspError::Spectral {
+            message: "center/Hann output length mismatch".to_owned(),
+            code: DspFailureCode::Spectral,
+        });
+    }
 
     let window = hann_window(n);
     let window_power: f64 = window.iter().map(|w| w * w).sum();
@@ -209,10 +235,9 @@ fn spectrum_for_series(
         });
     }
 
-    let mut buffer: Vec<Complex<f64>> = centered
+    let mut buffer: Vec<Complex<f64>> = windowed
         .iter()
-        .zip(window.iter())
-        .map(|(value, weight)| Complex::new(value * weight, 0.0))
+        .map(|value| Complex::new(*value, 0.0))
         .collect();
 
     let mut planner = FftPlanner::<f64>::new();
@@ -242,9 +267,6 @@ fn spectrum_for_series(
     }
 
     let dominant_non_dc_hz = dominant_non_dc(&frequencies_hz, &power);
-
-    // Silence unused mut warning path for centered reuse clarity.
-    let _ = &mut centered;
 
     Ok(LinkPowerSpectrum {
         link,
@@ -349,7 +371,8 @@ mod tests {
     fn constant_signal_after_mean_removal_has_near_zero_ac_power() {
         let signal = vec![3.0; 16];
         let spectrum =
-            spectrum_for_series(AntennaLink::new(0, 0), &signal, 10.0).expect("spectrum");
+            spectrum_for_series(AntennaLink::new(0, 0), &signal, 10.0, &RustKernelBackend)
+                .expect("spectrum");
         assert_eq!(spectrum.frequencies_hz.len(), 9);
         let ac: f64 = spectrum.power.iter().skip(1).sum();
         assert!(ac < 1e-9);
@@ -363,7 +386,8 @@ mod tests {
         let signal: Vec<f64> = (0..n)
             .map(|index| (std::f64::consts::TAU * target_hz * index as f64 / fs).sin())
             .collect();
-        let spectrum = spectrum_for_series(AntennaLink::new(0, 0), &signal, fs).expect("spectrum");
+        let spectrum = spectrum_for_series(AntennaLink::new(0, 0), &signal, fs, &RustKernelBackend)
+            .expect("spectrum");
         let dominant = spectrum.dominant_non_dc_hz.expect("dominant");
         let bin_hz = fs / n as f64;
         assert!((dominant - target_hz).abs() <= bin_hz + 1e-9);
@@ -380,10 +404,16 @@ mod tests {
 
     #[test]
     fn rejects_insufficient_length_and_invalid_rate() {
-        let err =
-            spectrum_for_series(AntennaLink::new(0, 0), &[1.0, 2.0], 10.0).expect_err("short");
+        let err = spectrum_for_series(
+            AntennaLink::new(0, 0),
+            &[1.0, 2.0],
+            10.0,
+            &RustKernelBackend,
+        )
+        .expect_err("short");
         assert_eq!(err.code(), DspFailureCode::InsufficientLength);
-        let err = spectrum_for_series(AntennaLink::new(0, 0), &[1.0; 8], 0.0).expect_err("rate");
+        let err = spectrum_for_series(AntennaLink::new(0, 0), &[1.0; 8], 0.0, &RustKernelBackend)
+            .expect_err("rate");
         assert_eq!(err.code(), DspFailureCode::InvalidSampleRate);
     }
 

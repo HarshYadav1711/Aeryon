@@ -361,6 +361,7 @@ fn csi_dsp_config(path: &str) -> AppConfig {
         [dsp]
         enabled = true
         profile = "baseline-dsp-v1"
+        backend = "rust"
         queue_capacity = 32
         window_size_frames = 8
         hop_size_frames = 4
@@ -507,6 +508,8 @@ async fn signal_and_dsp_endpoints_report_no_data_before_frames() {
     assert_eq!(status_body["enabled"], false);
     assert_eq!(status_body["worker_state"], "disabled");
     assert_eq!(status_body["health"], "disabled");
+    assert_eq!(status_body["configured_backend"], "rust");
+    assert_eq!(status_body["backend_available"], true);
 
     let (events_status, events_body) = json_get(state.clone(), "/api/v1/events/recent").await;
     assert_eq!(events_status, StatusCode::OK);
@@ -564,6 +567,10 @@ async fn signal_dsp_and_events_endpoints_after_pipeline() {
     assert_eq!(dsp_status, StatusCode::OK);
     assert_eq!(dsp_body["enabled"], true);
     assert_eq!(dsp_body["profile_id"], "baseline-dsp-v1");
+    assert_eq!(dsp_body["configured_backend"], "rust");
+    assert_eq!(dsp_body["active_backend"], "rust");
+    assert_eq!(dsp_body["backend_available"], true);
+    assert!(dsp_body["backend_version"].as_str().is_some());
     assert!(dsp_body["windows_emitted"].as_u64().unwrap_or(0) >= 1);
     assert!(dsp_body["calibrated_frames_received"].as_u64().unwrap_or(0) >= 4);
     let health = dsp_body["health"].as_str().expect("health");

@@ -129,6 +129,32 @@ impl Runtime {
                 .dsp()
                 .set_worker_state(DspWorkerState::Disabled);
         }
+        let backend = self.context.config.dsp.backend;
+        self.context.metrics.dsp().set_backend_identity(
+            backend.as_str(),
+            match backend {
+                aeryon_dsp::DspBackendKind::Rust => aeryon_dsp::RUST_BACKEND_VERSION,
+                aeryon_dsp::DspBackendKind::Cpp => aeryon_dsp::CPP_BACKEND_VERSION,
+            },
+            match backend {
+                aeryon_dsp::DspBackendKind::Rust => None,
+                aeryon_dsp::DspBackendKind::Cpp => Some(aeryon_dsp::CPP_ABI_VERSION),
+            },
+            backend.is_compiled(),
+            if backend.is_compiled() {
+                "pending"
+            } else {
+                "unavailable"
+            },
+            if backend.is_compiled() {
+                None
+            } else {
+                Some(format!(
+                    "backend `{}` is not compiled into this binary",
+                    backend.as_str()
+                ))
+            },
+        );
 
         if self.context.config.plugins.enabled {
             if self.context.config.synthetic_sensor.enabled {
@@ -942,6 +968,8 @@ mod tests {
             .signal_store()
             .latest_dsp()
             .expect("latest DSP result stored");
+        assert_eq!(result.backend_id, "rust");
+        assert!(result.backend_abi_version.is_none());
         assert!(
             result
                 .motion_energy
@@ -998,6 +1026,117 @@ mod tests {
                 .lifecycle_state(&PluginId::new(CSI_REPLAY_PLUGIN_ID)),
             Some(LifecycleState::Stopped)
         );
+    }
+
+    #[cfg(feature = "cpp-dsp")]
+    #[tokio::test]
+    async fn dsp_end_to_end_with_cpp_backend() {
+        let fixture = write_csi_fixture();
+        let path = fixture.path().to_string_lossy().replace('\\', "/");
+        let toml = format!(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "error"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+            first_frame_timeout_ms = 2000
+
+            [synthetic_sensor]
+            enabled = false
+
+            [sensors.csi_replay]
+            enabled = true
+            path = "{path}"
+            loop_playback = false
+            frame_interval_ms = 10
+            maximum_frames = 12
+
+            [calibration]
+            enabled = true
+            profile = "baseline-csi-v1"
+            queue_capacity = 64
+
+            [dsp]
+            enabled = true
+            profile = "baseline-dsp-v1"
+            backend = "cpp"
+            queue_capacity = 64
+            window_size_frames = 8
+            hop_size_frames = 4
+            maximum_sequence_gap = 1
+            timestamp_jitter_tolerance = 0.10
+            "#
+        );
+        let mut runtime = Runtime::boot(AppConfig::from_toml(&toml).expect("toml")).expect("boot");
+        let mut receiver = runtime.context().event_bus.subscribe();
+        runtime.start().expect("start");
+
+        let mut saw_started = false;
+        let mut saw_processed = false;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+        while tokio::time::Instant::now() < deadline {
+            match timeout(Duration::from_millis(500), receiver.recv()).await {
+                Ok(Ok(Event::DspServiceStarted(event))) => {
+                    assert_eq!(event.backend_id, "cpp");
+                    assert_eq!(event.backend_abi_version, Some(aeryon_dsp::CPP_ABI_VERSION));
+                    saw_started = true;
+                }
+                Ok(Ok(Event::DspWindowProcessed(_))) => {
+                    saw_processed = true;
+                }
+                Ok(Ok(Event::DspServiceIdle(event))) if event.completed && saw_processed => break,
+                Ok(Ok(_)) => {}
+                _ => {
+                    if saw_processed && runtime.metrics().dsp().windows_emitted() >= 1 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        assert!(saw_started);
+        assert!(saw_processed);
+        assert_eq!(
+            runtime.metrics().dsp().active_backend().as_deref(),
+            Some("cpp")
+        );
+
+        let result = runtime
+            .signal_store()
+            .latest_dsp()
+            .expect("latest DSP result");
+        assert_eq!(result.backend_id, "cpp");
+        assert_eq!(
+            result.backend_abi_version,
+            Some(aeryon_dsp::CPP_ABI_VERSION)
+        );
+        assert!(
+            result
+                .motion_energy
+                .signal
+                .links
+                .iter()
+                .flat_map(|link| link.values.iter())
+                .chain(
+                    result
+                        .spectra
+                        .links
+                        .iter()
+                        .flat_map(|link| link.power.iter())
+                )
+                .all(|value| value.is_finite())
+        );
+
+        runtime.shutdown().expect("shutdown");
     }
 
     #[tokio::test]

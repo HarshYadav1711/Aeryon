@@ -1,28 +1,33 @@
 //! Pure window processing pipeline used by the runtime DSP service.
 
+use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use aeryon_domain::Timestamp;
 
+use crate::backend::DspKernelBackend;
 use crate::errors::DspError;
-use crate::motion::compute_motion_energy;
+use crate::motion::compute_motion_energy_with_backend;
 use crate::profile::DspProfile;
 use crate::result::{DspResultStatus, DspWindowResult, MotionEnergySeries};
-use crate::spectral::analyze_spectrum;
+use crate::spectral::analyze_spectrum_with_backend;
 use crate::window::CsiWindow;
 
 /// Processes one validated [`CsiWindow`] into an immutable [`DspWindowResult`].
 pub fn process_window(
     window: &CsiWindow,
     profile: &DspProfile,
+    backend: &dyn DspKernelBackend,
 ) -> Result<DspWindowResult, DspError> {
     let started = Instant::now();
-    let motion = compute_motion_energy(window)?;
-    let spectra = analyze_spectrum(
+    let identity = backend.identity();
+    let motion = compute_motion_energy_with_backend(window, backend)?;
+    let spectra = analyze_spectrum_with_backend(
         window,
         &motion.links,
         motion.aggregate.as_deref(),
         profile.timestamp_jitter_tolerance,
+        backend,
     )?;
 
     let first_capture = window.first_capture_timestamp().as_nanos();
@@ -82,11 +87,23 @@ pub fn process_window(
         spectra,
         dsp_profile_id: profile.id.clone(),
         dsp_profile_version: profile.version,
+        backend_id: identity.kind.as_str().to_owned(),
+        backend_version: identity.implementation_version.clone(),
+        backend_abi_version: identity.abi_version,
         processed_at: now(),
         processing_duration_ns: duration_ns,
         warnings,
         status: DspResultStatus::Success,
     })
+}
+
+/// Processes a window using a shared backend handle.
+pub fn process_window_arc(
+    window: &CsiWindow,
+    profile: &DspProfile,
+    backend: &Arc<dyn DspKernelBackend>,
+) -> Result<DspWindowResult, DspError> {
+    process_window(window, profile, backend.as_ref())
 }
 
 fn now() -> Timestamp {

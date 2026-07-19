@@ -3,6 +3,8 @@
 use aeryon_domain::{FrameId, SensorId};
 use thiserror::Error;
 
+use crate::backend::DspBackendKind;
+
 /// Errors produced while assembling or processing CSI windows.
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum DspError {
@@ -10,6 +12,29 @@ pub enum DspError {
     #[error("invalid DSP configuration: {message}")]
     InvalidConfig {
         /// Operator-safe detail.
+        message: String,
+    },
+    /// Requested kernel backend is not available in this build or failed init.
+    #[error("DSP backend `{}` unavailable: {message}", backend.as_str())]
+    BackendUnavailable {
+        /// Requested backend.
+        backend: DspBackendKind,
+        /// Operator-safe detail.
+        message: String,
+    },
+    /// Native kernel returned a mapped status failure.
+    #[error(
+        "native DSP kernel `{kernel}` failed on backend `{}`: {message}",
+        backend.as_str()
+    )]
+    NativeKernel {
+        /// Active backend.
+        backend: DspBackendKind,
+        /// Kernel name.
+        kernel: &'static str,
+        /// Native status label.
+        status: String,
+        /// Operator-safe detail including dimensions.
         message: String,
     },
     /// Window failed temporal or geometry validation.
@@ -59,6 +84,8 @@ impl DspError {
     pub fn code(&self) -> DspFailureCode {
         match self {
             Self::InvalidConfig { .. } => DspFailureCode::InvalidConfig,
+            Self::BackendUnavailable { .. } => DspFailureCode::BackendUnavailable,
+            Self::NativeKernel { .. } => DspFailureCode::NativeKernel,
             Self::InvalidWindow { .. } => DspFailureCode::InvalidWindow,
             Self::AssemblerRejected { code, .. } => *code,
             Self::MotionEnergy { .. } => DspFailureCode::MotionEnergy,
@@ -89,6 +116,10 @@ impl DspError {
 pub enum DspFailureCode {
     /// Profile / configuration validation failed.
     InvalidConfig,
+    /// Requested backend is unavailable.
+    BackendUnavailable,
+    /// Native kernel status mapping failure.
+    NativeKernel,
     /// Window geometry or temporal invariants failed.
     InvalidWindow,
     /// Sensor mismatch across frames.
@@ -126,6 +157,8 @@ impl DspFailureCode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidConfig => "invalid_config",
+            Self::BackendUnavailable => "backend_unavailable",
+            Self::NativeKernel => "native_kernel",
             Self::InvalidWindow => "invalid_window",
             Self::SensorMismatch => "sensor_mismatch",
             Self::GeometryMismatch => "geometry_mismatch",

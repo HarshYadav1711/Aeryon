@@ -7,11 +7,17 @@ authors.workspace = true
 description = "Temporal CSI windowing and baseline spectral DSP for Aeryon"
 rust-version.workspace = true
 
+[features]
+default = []
+# Optional C++ numerical kernels linked through native/ffi.
+cpp-dsp = ["dep:aeryon-dsp-ffi"]
+
 [dependencies]
 aeryon-calibration = { path = "../calibration" }
 aeryon-csi = { path = "../csi" }
 aeryon-domain = { path = "../domain" }
 aeryon-events = { path = "../events" }
+aeryon-dsp-ffi = { path = "../../native/ffi", optional = true }
 num-complex = "0.4"
 rustfft = "6"
 serde = { version = "1", features = ["derive"] }
@@ -20,7 +26,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 tracing = "0.1"
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[[bench]]
+name = "dsp_backends"
+harness = false
 
 [lints]
 workspace = true

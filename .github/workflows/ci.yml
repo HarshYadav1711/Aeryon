@@ -44,6 +44,29 @@ jobs:
       - name: Run tests
         run: ctest --test-dir native/cpp-dsp/build --output-on-failure
 
+  rust-cpp-dsp:
+    name: Rust (cpp-dsp)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cmake
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests with cpp-dsp
+        run: cargo test --workspace --features aeryon-dsp/cpp-dsp,aeryon-runtime/cpp-dsp,aeryon-server/cpp-dsp
+
+      - name: Clippy with cpp-dsp
+        run: cargo clippy --workspace --all-targets --features aeryon-dsp/cpp-dsp,aeryon-runtime/cpp-dsp,aeryon-server/cpp-dsp -- -D warnings
+
   python:
     name: Python
     runs-on: ubuntu-latest
