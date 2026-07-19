@@ -1,7 +1,7 @@
 //! Shared application context.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use aeryon_events::EventBus;
 use aeryon_plugin_runtime::PluginRuntime;
@@ -19,8 +19,10 @@ pub struct AppContext {
     pub event_bus: EventBus,
     /// Shared runtime statistics.
     pub metrics: Arc<RuntimeMetrics>,
-    /// Time the context was created.
+    /// Monotonic time the context was created.
     pub started_at: Instant,
+    /// Wall-clock time the context was created.
+    pub started_at_wall: SystemTime,
     /// Application version string.
     pub version: &'static str,
 }
@@ -40,6 +42,7 @@ impl AppContext {
             event_bus,
             metrics,
             started_at: Instant::now(),
+            started_at_wall: SystemTime::now(),
             version,
         }
     }

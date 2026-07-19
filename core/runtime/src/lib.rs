@@ -14,7 +14,8 @@ pub mod metrics;
 pub mod runtime;
 
 pub use config::{
-    AppConfig, ApplicationConfig, DEFAULT_CONFIG, LoggingConfig, PluginsConfig, RuntimeSettings,
+    ApiConfig, AppConfig, ApplicationConfig, DEFAULT_CONFIG, LoggingConfig, PluginsConfig,
+    RuntimeSettings,
 };
 pub use context::AppContext;
 pub use error::{ConfigError, LoggingError, RuntimeError};

@@ -16,6 +16,14 @@ pub enum ConfigError {
     Parse(toml::de::Error),
     /// Synthetic sensor configuration failed validation.
     Synthetic(SyntheticConfigError),
+    /// API bind host is invalid.
+    InvalidApiHost(String),
+    /// API bind port is invalid.
+    InvalidApiPort(u16),
+    /// API host/port combination cannot be bound as configured.
+    InvalidApiBind(String),
+    /// A configured CORS origin is invalid.
+    InvalidCorsOrigin(String),
 }
 
 /// Errors encountered while initializing logging.
@@ -79,6 +87,12 @@ impl fmt::Display for ConfigError {
             Self::Io(error) => write!(f, "configuration I/O error: {error}"),
             Self::Parse(error) => write!(f, "configuration parse error: {error}"),
             Self::Synthetic(error) => write!(f, "configuration validation error: {error}"),
+            Self::InvalidApiHost(host) => write!(f, "invalid api.host `{host}`"),
+            Self::InvalidApiPort(port) => write!(f, "invalid api.port `{port}`"),
+            Self::InvalidApiBind(detail) => write!(f, "invalid api bind configuration: {detail}"),
+            Self::InvalidCorsOrigin(origin) => {
+                write!(f, "invalid api.cors_origins entry `{origin}`")
+            }
         }
     }
 }
@@ -117,6 +131,10 @@ impl std::error::Error for ConfigError {
             Self::Io(error) => Some(error),
             Self::Parse(error) => Some(error),
             Self::Synthetic(error) => Some(error),
+            Self::InvalidApiHost(_)
+            | Self::InvalidApiPort(_)
+            | Self::InvalidApiBind(_)
+            | Self::InvalidCorsOrigin(_) => None,
         }
     }
 }

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Milestone M2.2: live Axum REST/WebSocket API and React dashboard over real runtime state
+- API configuration (`[api]` host/port/CORS) in the existing TOML config system
+- Local-development endpoints: `/health`, `/api/v1/runtime`, `/api/v1/plugins`, `/api/v1/sensors/synthetic`, `/api/v1/events/ws`
 - Milestone M1.1–M1.3: domain contracts, plugin runtime, application runtime
 - Milestone M2.1: deterministic synthetic sensor plugin, typed event bus, runtime frame consumer
 - Cargo workspace with domain, plugin-runtime, runtime, events, and synthetic-sensor crates

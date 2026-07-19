@@ -1,7 +1,9 @@
 //! Application configuration.
 
 use std::fs;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
+use std::str::FromStr;
 
 use aeryon_synthetic_sensor::SyntheticSensorConfig;
 use serde::Deserialize;
@@ -23,6 +25,12 @@ autoload = false
 [runtime]
 shutdown_timeout_secs = 10
 first_frame_timeout_ms = 2000
+
+[api]
+enabled = true
+host = "127.0.0.1"
+port = 8080
+cors_origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
 
 [synthetic_sensor]
 enabled = true
@@ -46,6 +54,9 @@ pub struct AppConfig {
     pub plugins: PluginsConfig,
     /// Runtime behavior configuration.
     pub runtime: RuntimeSettings,
+    /// Local HTTP API configuration.
+    #[serde(default)]
+    pub api: ApiConfig,
     /// Synthetic sensor configuration.
     #[serde(default)]
     pub synthetic_sensor: SyntheticSensorConfig,
@@ -86,8 +97,126 @@ pub struct RuntimeSettings {
     pub first_frame_timeout_ms: u64,
 }
 
+/// Local development HTTP API configuration.
+///
+/// This surface is local-development infrastructure for the live dashboard
+/// slice. It is not a production-hardened public API.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ApiConfig {
+    /// Whether the HTTP API should bind and serve requests.
+    #[serde(default = "default_api_enabled")]
+    pub enabled: bool,
+    /// Bind host (IPv4/IPv6 address).
+    #[serde(default = "default_api_host")]
+    pub host: String,
+    /// Bind port.
+    #[serde(default = "default_api_port")]
+    pub port: u16,
+    /// Allowed CORS origins for the local frontend.
+    #[serde(default = "default_cors_origins")]
+    pub cors_origins: Vec<String>,
+}
+
 fn default_first_frame_timeout_ms() -> u64 {
     2_000
+}
+
+fn default_api_enabled() -> bool {
+    true
+}
+
+fn default_api_host() -> String {
+    "127.0.0.1".to_owned()
+}
+
+fn default_api_port() -> u16 {
+    8080
+}
+
+fn default_cors_origins() -> Vec<String> {
+    vec![
+        "http://127.0.0.1:5173".to_owned(),
+        "http://localhost:5173".to_owned(),
+    ]
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_api_enabled(),
+            host: default_api_host(),
+            port: default_api_port(),
+            cors_origins: default_cors_origins(),
+        }
+    }
+}
+
+impl ApiConfig {
+    /// Validates host, port, and CORS origin configuration.
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.port == 0 {
+            return Err(ConfigError::InvalidApiPort(self.port));
+        }
+
+        if self.host.trim().is_empty() {
+            return Err(ConfigError::InvalidApiHost(self.host.clone()));
+        }
+
+        // Reject host values that already embed a port; bind address is host+port.
+        if self.host.contains(':') && self.host.parse::<SocketAddr>().is_ok() {
+            return Err(ConfigError::InvalidApiBind(format!(
+                "host `{host}` includes a port; set host and port separately",
+                host = self.host
+            )));
+        }
+
+        if IpAddr::from_str(self.host.trim()).is_err() {
+            return Err(ConfigError::InvalidApiHost(self.host.clone()));
+        }
+
+        for origin in &self.cors_origins {
+            validate_cors_origin(origin)?;
+        }
+
+        Ok(())
+    }
+
+    /// Returns the socket address used to bind the HTTP server.
+    pub fn socket_addr(&self) -> Result<SocketAddr, ConfigError> {
+        self.validate()?;
+        let ip = IpAddr::from_str(self.host.trim())
+            .map_err(|_| ConfigError::InvalidApiHost(self.host.clone()))?;
+        Ok(SocketAddr::new(ip, self.port))
+    }
+}
+
+fn validate_cors_origin(origin: &str) -> Result<(), ConfigError> {
+    let trimmed = origin.trim();
+    if trimmed.is_empty() || trimmed == "*" {
+        return Err(ConfigError::InvalidCorsOrigin(origin.to_owned()));
+    }
+
+    let (scheme, remainder) = trimmed
+        .split_once("://")
+        .ok_or_else(|| ConfigError::InvalidCorsOrigin(origin.to_owned()))?;
+
+    if scheme != "http" && scheme != "https" {
+        return Err(ConfigError::InvalidCorsOrigin(origin.to_owned()));
+    }
+
+    let host_port = remainder
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .split('?')
+        .next()
+        .unwrap_or_default();
+
+    if host_port.is_empty() || host_port == "*" {
+        return Err(ConfigError::InvalidCorsOrigin(origin.to_owned()));
+    }
+
+    Ok(())
 }
 
 impl AppConfig {
@@ -120,6 +249,7 @@ impl AppConfig {
 
     /// Validates nested configuration sections.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        self.api.validate()?;
         self.synthetic_sensor
             .validate()
             .map_err(ConfigError::Synthetic)?;
@@ -198,6 +328,12 @@ mod tests {
             shutdown_timeout_secs = 5
             first_frame_timeout_ms = 500
 
+            [api]
+            enabled = false
+            host = "0.0.0.0"
+            port = 9090
+            cors_origins = ["http://127.0.0.1:3000"]
+
             [synthetic_sensor]
             enabled = false
             interval_ms = 50
@@ -210,7 +346,104 @@ mod tests {
         assert_eq!(config.logging.level, "debug");
         assert!(!config.plugins.enabled);
         assert_eq!(config.runtime.shutdown_timeout_secs, 5);
+        assert!(!config.api.enabled);
+        assert_eq!(config.api.port, 9090);
         assert!(!config.synthetic_sensor.enabled);
         assert_eq!(config.synthetic_sensor.samples_per_frame, 32);
+    }
+
+    #[test]
+    fn valid_api_configuration_loads() {
+        let config = AppConfig::default_config();
+        assert!(config.api.enabled);
+        assert_eq!(
+            config.api.socket_addr().expect("bind addr"),
+            "127.0.0.1:8080".parse().expect("parse")
+        );
+    }
+
+    #[test]
+    fn invalid_api_port_is_rejected() {
+        let error = AppConfig::from_toml(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "info"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+
+            [api]
+            enabled = true
+            host = "127.0.0.1"
+            port = 0
+            "#,
+        )
+        .expect_err("port 0 rejected");
+        assert!(matches!(error, ConfigError::InvalidApiPort(0)));
+    }
+
+    #[test]
+    fn invalid_api_host_socket_combo_is_rejected() {
+        let error = AppConfig::from_toml(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "info"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+
+            [api]
+            enabled = true
+            host = "127.0.0.1:8080"
+            port = 8080
+            "#,
+        )
+        .expect_err("combined host:port rejected");
+        assert!(matches!(error, ConfigError::InvalidApiBind(_)));
+    }
+
+    #[test]
+    fn wildcard_cors_origin_is_rejected() {
+        let error = AppConfig::from_toml(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "info"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+
+            [api]
+            enabled = true
+            host = "127.0.0.1"
+            port = 8080
+            cors_origins = ["*"]
+            "#,
+        )
+        .expect_err("wildcard cors rejected");
+        assert!(matches!(error, ConfigError::InvalidCorsOrigin(_)));
     }
 }

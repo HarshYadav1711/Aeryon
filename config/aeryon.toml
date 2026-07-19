@@ -13,6 +13,12 @@ autoload = false
 shutdown_timeout_secs = 10
 first_frame_timeout_ms = 2000
 
+[api]
+enabled = true
+host = "127.0.0.1"
+port = 8080
+cors_origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
+
 [synthetic_sensor]
 enabled = true
 interval_ms = 100

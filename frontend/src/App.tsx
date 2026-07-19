@@ -1,12 +1,10 @@
 import './App.css'
+import { Dashboard } from './components/Dashboard'
+import { useDashboard } from './hooks/useDashboard'
 
 function App() {
-  return (
-    <main className="layout">
-      <h1>Aeryon</h1>
-      <p>Transforming Signals into Understanding</p>
-    </main>
-  )
+  const state = useDashboard()
+  return <Dashboard {...state} />
 }
 
 export default App
