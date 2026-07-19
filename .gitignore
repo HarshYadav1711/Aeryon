@@ -75,11 +75,13 @@ Desktop.ini
 *.log
 logs/
 
-# Datasets (local copies; structure is tracked, contents are not)
+# Datasets (local copies; structure is tracked, fixtures under fixtures/ are tracked)
 datasets/**/*
 !datasets/.gitkeep
 !datasets/**/.gitkeep
 !datasets/**/README.md
+!datasets/fixtures/
+!datasets/fixtures/**
 
 # Benchmark and test output
 benchmarks/results/

@@ -1,0 +1,24 @@
+[package]
+name = "aeryon-csi-replay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Deterministic WiFi CSI fixture replay sensor plugin for Aeryon"
+rust-version.workspace = true
+
+[dependencies]
+aeryon-csi = { path = "../../core/csi" }
+aeryon-domain = { path = "../../core/domain" }
+aeryon-events = { path = "../../core/events" }
+aeryon-plugin-runtime = { path = "../../core/plugin-runtime" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "test-util"] }
+
+[lints]
+workspace = true

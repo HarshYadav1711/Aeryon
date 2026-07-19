@@ -275,3 +275,120 @@ async fn websocket_client_disconnect_is_clean() {
     let _ = shutdown_tx.send(true);
     state.runtime().write().await.shutdown().expect("shutdown");
 }
+
+fn csi_replay_config(path: &str) -> AppConfig {
+    AppConfig::from_toml(&format!(
+        r#"
+        [application]
+        name = "aeryon"
+        environment = "development"
+
+        [logging]
+        level = "error"
+
+        [plugins]
+        enabled = true
+        autoload = false
+
+        [runtime]
+        shutdown_timeout_secs = 10
+        first_frame_timeout_ms = 2000
+
+        [api]
+        enabled = true
+        host = "127.0.0.1"
+        port = 8080
+        cors_origins = ["http://127.0.0.1:5173"]
+
+        [synthetic_sensor]
+        enabled = false
+
+        [sensors.csi_replay]
+        enabled = true
+        path = "{path}"
+        loop_playback = false
+        frame_interval_ms = 15
+        maximum_frames = 6
+        "#
+    ))
+    .expect("valid csi config")
+}
+
+fn write_temp_csi_fixture() -> tempfile::NamedTempFile {
+    use std::io::Write;
+    let mut file = tempfile::NamedTempFile::new().expect("temp");
+    writeln!(
+        file,
+        r#"{{"record_type":"header","schema":"aeryon-csi-fixture","version":1,"sensor_id":"2","description":"api e2e","sample_layout":"rx-tx-subcarrier"}}"#
+    )
+    .expect("header");
+    for sequence in 0..8_u64 {
+        writeln!(
+            file,
+            r#"{{"record_type":"frame","frame_id":{},"sequence":{},"capture_timestamp_nanos":{},"center_frequency_hz":5180000000.0,"bandwidth_hz":20000000.0,"receive_antennas":2,"transmit_antennas":1,"subcarrier_indices":[-1,0,1],"samples":[{{"re":1.0,"im":0.0}},{{"re":0.0,"im":1.0}},{{"re":-1.0,"im":0.0}},{{"re":2.0,"im":0.0}},{{"re":0.0,"im":2.0}},{{"re":-2.0,"im":0.0}}]}}"#,
+            sequence + 1,
+            sequence,
+            1_000 + sequence
+        )
+        .expect("frame");
+    }
+    file
+}
+
+#[tokio::test]
+async fn csi_replay_end_to_end_events_stats_and_endpoint() {
+    let fixture = write_temp_csi_fixture();
+    let path = fixture.path().to_string_lossy().replace('\\', "/");
+    let mut runtime = Runtime::boot(csi_replay_config(&path)).expect("boot");
+    let mut receiver = runtime.context().event_bus.subscribe();
+    runtime.start().expect("start");
+
+    let mut sequences = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    while sequences.len() < 3 && tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(500), receiver.recv()).await {
+            Ok(Ok(Event::CsiFrameReceived(frame))) => {
+                assert_eq!(frame.receive_antennas, 2);
+                assert_eq!(frame.transmit_antennas, 1);
+                assert_eq!(frame.subcarrier_count, 3);
+                assert_eq!(frame.source.as_str(), "csi_replay");
+                sequences.push(frame.sequence);
+            }
+            Ok(Ok(_)) => {}
+            _ => break,
+        }
+    }
+
+    assert!(
+        sequences.len() >= 3,
+        "expected at least 3 CSI frames, got {sequences:?}"
+    );
+    assert!(sequences.windows(2).all(|pair| pair[1] == pair[0] + 1));
+    assert!(runtime.metrics().frames_received() >= 3);
+    assert!(runtime.metrics().csi_replay().frames_accepted() >= 3);
+
+    let state = test_state(runtime);
+    let (status, body) = json_get(state.clone(), "/api/v1/sensors/csi-replay").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["enabled"], true);
+    assert_eq!(body["source_type"], "csi_replay");
+    assert_eq!(
+        body["data_classification"],
+        "deterministic_development_fixture"
+    );
+    assert!(body["frames_accepted"].as_u64().unwrap_or(0) >= 3);
+    assert_eq!(body["receive_antennas"], 2);
+    assert_eq!(body["transmit_antennas"], 1);
+    assert_eq!(body["subcarrier_count"], 3);
+    assert!(body["latest_sequence"].as_u64().is_some());
+    assert!(body["fixture_path"].as_str().is_some());
+
+    let (runtime_status, runtime_body) = json_get(state.clone(), "/api/v1/runtime").await;
+    assert_eq!(runtime_status, StatusCode::OK);
+    assert_eq!(runtime_body["csi_replay_enabled"], true);
+    assert_eq!(runtime_body["active_source"], "csi_replay");
+    assert_eq!(runtime_body["synthetic_source_enabled"], false);
+
+    state.runtime().write().await.shutdown().expect("shutdown");
+    assert!(!state.runtime().read().await.metrics().consumer_running());
+}

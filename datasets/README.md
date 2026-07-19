@@ -1,5 +1,6 @@
 # Datasets
 
-This directory holds local dataset copies used for development and testing. Dataset contents are not tracked in version control.
+This directory holds local dataset copies used for development and testing.
 
-Place datasets here following the layout documented in `ml/datasets/` once schemas are defined.
+- Most dataset contents are not tracked in version control.
+- Checked-in **development fixtures** under `fixtures/` (for example CSI replay inputs) are tracked and documented beside each fixture set.

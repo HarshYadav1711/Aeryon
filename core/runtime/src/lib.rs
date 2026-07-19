@@ -15,7 +15,7 @@ pub mod runtime;
 
 pub use config::{
     ApiConfig, AppConfig, ApplicationConfig, DEFAULT_CONFIG, LoggingConfig, PluginsConfig,
-    RuntimeSettings,
+    RuntimeSettings, SensorsConfig,
 };
 pub use context::AppContext;
 pub use error::{ConfigError, LoggingError, RuntimeError};

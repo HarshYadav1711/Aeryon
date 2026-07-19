@@ -12,6 +12,7 @@ aeryon-domain = { path = "../domain" }
 aeryon-events = { path = "../events" }
 aeryon-plugin-runtime = { path = "../plugin-runtime" }
 aeryon-synthetic-sensor = { path = "../../plugins/synthetic-sensor" }
+aeryon-csi-replay = { path = "../../plugins/csi-replay" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 toml = "0.8"
@@ -19,6 +20,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [lints]

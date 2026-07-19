@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Milestone M3.1: canonical CSI frame (`aeryon-csi`), versioned development fixture format, CSI replay plugin, REST/WebSocket metadata, and dashboard source visibility
+- Checked-in synthetic CSI fixture under `datasets/fixtures/csi/` (not hardware-captured; not production recording format)
+- API endpoint `GET /api/v1/sensors/csi-replay` and CSI metadata WebSocket events
 - Milestone M2.2: live Axum REST/WebSocket API and React dashboard over real runtime state
 - API configuration (`[api]` host/port/CORS) in the existing TOML config system
 - Local-development endpoints: `/health`, `/api/v1/runtime`, `/api/v1/plugins`, `/api/v1/sensors/synthetic`, `/api/v1/events/ws`

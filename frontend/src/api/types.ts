@@ -15,6 +15,13 @@ export interface SyntheticHealthSummary {
   health?: string | null
 }
 
+export interface CsiReplayHealthSummary {
+  enabled: boolean
+  lifecycle_state?: string | null
+  health?: string | null
+  completion?: string | null
+}
+
 export interface HealthResponse {
   status: string
   healthy: boolean
@@ -22,6 +29,7 @@ export interface HealthResponse {
   timestamp: string
   event_consumer_running: boolean
   synthetic_sensor: SyntheticHealthSummary
+  csi_replay: CsiReplayHealthSummary
 }
 
 export interface RuntimeSnapshot {
@@ -37,6 +45,9 @@ export interface RuntimeSnapshot {
   last_frame_timestamp: string | null
   synthetic_sensor_lifecycle: string | null
   synthetic_source_enabled: boolean
+  csi_replay_lifecycle: string | null
+  csi_replay_enabled: boolean
+  active_source: string
 }
 
 export interface PluginSummary {
@@ -68,6 +79,30 @@ export interface SyntheticSensorSnapshot {
   last_sequence: number | null
   last_frame_timestamp: string | null
   health: string | null
+}
+
+export interface CsiReplaySnapshot {
+  enabled: boolean
+  lifecycle_state: string | null
+  health: string | null
+  source_type: string
+  data_classification: string
+  fixture_path: string
+  loop_playback: boolean
+  frame_interval_ms: number
+  maximum_frames: number
+  frames_read: number
+  frames_accepted: number
+  frames_rejected: number
+  latest_sequence: number | null
+  latest_frame_timestamp: string | null
+  receive_antennas: number | null
+  transmit_antennas: number | null
+  subcarrier_count: number | null
+  center_frequency_hz: number | null
+  bandwidth_hz: number | null
+  completion: string
+  last_error?: string | null
 }
 
 export interface ApiEventEnvelope {

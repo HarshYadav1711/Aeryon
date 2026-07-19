@@ -16,6 +16,7 @@ aeryon-events = { path = "../../core/events" }
 aeryon-plugin-runtime = { path = "../../core/plugin-runtime" }
 aeryon-runtime = { path = "../../core/runtime" }
 aeryon-synthetic-sensor = { path = "../../plugins/synthetic-sensor" }
+aeryon-csi-replay = { path = "../../plugins/csi-replay" }
 axum = { version = "0.8", features = ["ws"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 ctrlc = "3.4"
@@ -29,6 +30,7 @@ tracing = "0.1"
 [dev-dependencies]
 futures-util = "0.3"
 http-body-util = "0.1"
+tempfile = "3"
 tokio-tungstenite = "0.26"
 tower = { version = "0.5", features = ["util"] }
 

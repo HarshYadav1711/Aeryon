@@ -5,6 +5,7 @@ import { EventStream } from '../api/eventStream'
 import type {
   ApiEventEnvelope,
   ConnectionState,
+  CsiReplaySnapshot,
   RuntimeSnapshot,
   SyntheticSensorSnapshot,
 } from '../api/types'
@@ -16,6 +17,7 @@ export type DashboardState = {
   connection: ConnectionState
   runtime: RuntimeSnapshot | null
   sensor: SyntheticSensorSnapshot | null
+  csiReplay: CsiReplaySnapshot | null
   events: ApiEventEnvelope[]
   framesReceived: number
   latestSequence: number | null
@@ -29,6 +31,7 @@ function emptyState(): DashboardState {
     connection: 'loading',
     runtime: null,
     sensor: null,
+    csiReplay: null,
     events: [],
     framesReceived: 0,
     latestSequence: null,
@@ -38,6 +41,10 @@ function emptyState(): DashboardState {
   }
 }
 
+function isFrameEvent(type: string): boolean {
+  return type === 'sensor_frame' || type === 'csi_frame'
+}
+
 export function useDashboard(): DashboardState {
   const [state, setState] = useState<DashboardState>(emptyState)
   const frameTimesRef = useRef<number[]>([])
@@ -45,14 +52,16 @@ export function useDashboard(): DashboardState {
 
   const refreshRest = useCallback(async () => {
     try {
-      const [runtime, sensor] = await Promise.all([
+      const [runtime, sensor, csiReplay] = await Promise.all([
         apiClient.getRuntime(),
         apiClient.getSyntheticSensor(),
+        apiClient.getCsiReplay(),
       ])
       setState((prev) => ({
         ...prev,
         runtime,
         sensor,
+        csiReplay,
         restError: null,
         framesReceived: Math.max(prev.framesReceived, runtime.frames_received),
         latestSequence: runtime.last_frame_sequence ?? prev.latestSequence,
@@ -89,9 +98,10 @@ export function useDashboard(): DashboardState {
 
     const bootstrap = async () => {
       try {
-        const [runtime, sensor] = await Promise.all([
+        const [runtime, sensor, csiReplay] = await Promise.all([
           apiClient.getRuntime(),
           apiClient.getSyntheticSensor(),
+          apiClient.getCsiReplay(),
         ])
         if (cancelled) {
           return
@@ -100,6 +110,7 @@ export function useDashboard(): DashboardState {
           ...prev,
           runtime,
           sensor,
+          csiReplay,
           framesReceived: runtime.frames_received,
           latestSequence: runtime.last_frame_sequence,
           latestFrameTimestamp: runtime.last_frame_timestamp,
@@ -159,7 +170,7 @@ export function useDashboard(): DashboardState {
           let latestFrameTimestamp = prev.latestFrameTimestamp
           let framesPerSecond = prev.framesPerSecond
 
-          if (event.type === 'sensor_frame') {
+          if (isFrameEvent(event.type)) {
             const sequence = numberField(event.payload.sequence)
             const capture = stringField(event.payload.capture_timestamp)
             framesReceived += 1

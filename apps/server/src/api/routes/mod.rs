@@ -30,6 +30,10 @@ pub fn build_router(state: AppState, api: &ApiConfig) -> Router {
             "/api/v1/sensors/synthetic",
             get(sensors::synthetic_sensor_handler),
         )
+        .route(
+            "/api/v1/sensors/csi-replay",
+            get(sensors::csi_replay_handler),
+        )
         .route("/api/v1/events/ws", get(events::events_ws_handler))
         .fallback(api_not_found)
         .layer(cors)

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use aeryon_domain::{Event, SensorFailureKind};
+use aeryon_domain::{CsiReplayFailureKind, Event, SensorFailureKind};
 use aeryon_events::BusError;
 use aeryon_runtime::Runtime;
 use axum::extract::State;
@@ -12,11 +12,15 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio::sync::{RwLock, mpsc};
 
-use crate::api::dto::{ApiEventEnvelope, SensorFramePayload, SensorLifecyclePayload};
+use crate::api::dto::{
+    ApiEventEnvelope, CsiFramePayload, CsiReplayLifecyclePayload, SensorFramePayload,
+    SensorLifecyclePayload,
+};
 use crate::api::state::AppState;
 use crate::api::time::{nanos_to_rfc3339, now_rfc3339};
 
 const OUTBOUND_BUFFER: usize = 64;
+const CSI_DATA_CLASSIFICATION: &str = "deterministic_development_fixture";
 
 pub async fn events_ws_handler(
     ws: WebSocketUpgrade,
@@ -137,6 +141,29 @@ fn domain_event_to_envelope(event: Event, samples_per_frame: usize) -> Option<Ap
                 payload: serde_json::to_value(payload).unwrap_or_else(|_| json!({})),
             })
         }
+        Event::CsiFrameReceived(frame) => {
+            let payload = CsiFramePayload {
+                sensor_id: frame.sensor_id.value(),
+                sequence: frame.sequence,
+                frame_id: frame.frame_id.value(),
+                capture_timestamp: nanos_to_rfc3339(frame.capture_timestamp.as_nanos()),
+                receive_timestamp: nanos_to_rfc3339(frame.receive_timestamp.as_nanos()),
+                receive_antennas: frame.receive_antennas,
+                transmit_antennas: frame.transmit_antennas,
+                subcarrier_count: frame.subcarrier_count,
+                center_frequency_hz: frame.center_frequency_hz,
+                bandwidth_hz: frame.bandwidth_hz,
+                source_type: "csi_replay",
+                data_classification: CSI_DATA_CLASSIFICATION,
+                live_hardware: false,
+            };
+            Some(ApiEventEnvelope {
+                version: 1,
+                event_type: "csi_frame".to_owned(),
+                timestamp: now_rfc3339(),
+                payload: serde_json::to_value(payload).unwrap_or_else(|_| json!({})),
+            })
+        }
         Event::SensorStarted(event) => Some(lifecycle_envelope(
             "sensor_started",
             SensorLifecyclePayload {
@@ -161,6 +188,50 @@ fn domain_event_to_envelope(event: Event, samples_per_frame: usize) -> Option<Ap
             },
             nanos_to_rfc3339(event.timestamp.as_nanos()),
         )),
+        Event::CsiReplayStarted(event) => Some(csi_lifecycle_envelope(
+            "csi_replay_started",
+            CsiReplayLifecyclePayload {
+                sensor_id: event.sensor_id.value(),
+                source_type: "csi_replay",
+                data_classification: CSI_DATA_CLASSIFICATION,
+                kind: None,
+                frames_accepted: None,
+            },
+            nanos_to_rfc3339(event.timestamp.as_nanos()),
+        )),
+        Event::CsiReplayCompleted(event) => Some(csi_lifecycle_envelope(
+            "csi_replay_completed",
+            CsiReplayLifecyclePayload {
+                sensor_id: event.sensor_id.value(),
+                source_type: "csi_replay",
+                data_classification: CSI_DATA_CLASSIFICATION,
+                kind: None,
+                frames_accepted: Some(event.frames_accepted),
+            },
+            nanos_to_rfc3339(event.timestamp.as_nanos()),
+        )),
+        Event::CsiReplayStopped(event) => Some(csi_lifecycle_envelope(
+            "csi_replay_stopped",
+            CsiReplayLifecyclePayload {
+                sensor_id: event.sensor_id.value(),
+                source_type: "csi_replay",
+                data_classification: CSI_DATA_CLASSIFICATION,
+                kind: None,
+                frames_accepted: None,
+            },
+            nanos_to_rfc3339(event.timestamp.as_nanos()),
+        )),
+        Event::CsiReplayFailed(event) => Some(csi_lifecycle_envelope(
+            "csi_replay_failed",
+            CsiReplayLifecyclePayload {
+                sensor_id: event.sensor_id.value(),
+                source_type: "csi_replay",
+                data_classification: CSI_DATA_CLASSIFICATION,
+                kind: Some(csi_failure_kind_label(event.kind)),
+                frames_accepted: None,
+            },
+            nanos_to_rfc3339(event.timestamp.as_nanos()),
+        )),
         _ => None,
     }
 }
@@ -178,9 +249,31 @@ fn lifecycle_envelope(
     }
 }
 
+fn csi_lifecycle_envelope(
+    event_type: &str,
+    payload: CsiReplayLifecyclePayload,
+    timestamp: String,
+) -> ApiEventEnvelope {
+    ApiEventEnvelope {
+        version: 1,
+        event_type: event_type.to_owned(),
+        timestamp,
+        payload: serde_json::to_value(payload).unwrap_or_else(|_| json!({})),
+    }
+}
+
 fn failure_kind_label(kind: SensorFailureKind) -> &'static str {
     match kind {
         SensorFailureKind::ProducerExited => "producer_exited",
         SensorFailureKind::PublishFailed => "publish_failed",
+    }
+}
+
+fn csi_failure_kind_label(kind: CsiReplayFailureKind) -> &'static str {
+    match kind {
+        CsiReplayFailureKind::FixtureError => "fixture_error",
+        CsiReplayFailureKind::MalformedFrame => "malformed_frame",
+        CsiReplayFailureKind::PublishFailed => "publish_failed",
+        CsiReplayFailureKind::ProducerExited => "producer_exited",
     }
 }

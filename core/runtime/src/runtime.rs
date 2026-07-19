@@ -3,10 +3,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use aeryon_csi_replay::{CsiReplayPlugin, PLUGIN_ID as CSI_REPLAY_PLUGIN_ID};
 use aeryon_domain::Event;
 use aeryon_events::EventBus;
 use aeryon_plugin_runtime::{LifecycleState, PluginId, PluginRuntime};
-use aeryon_synthetic_sensor::{PLUGIN_ID, SyntheticSensorPlugin};
+use aeryon_synthetic_sensor::{PLUGIN_ID as SYNTHETIC_PLUGIN_ID, SyntheticSensorPlugin};
 use tokio::task::JoinHandle;
 
 use crate::config::AppConfig;
@@ -65,8 +66,8 @@ impl Runtime {
 
     /// Transitions the runtime to the `Running` state.
     ///
-    /// When the synthetic sensor is enabled, registers and starts it through the
-    /// plugin runtime and begins consuming typed events.
+    /// Registers and starts the configured sensor plugin through the plugin
+    /// runtime and begins consuming typed events.
     pub fn start(&mut self) -> Result<(), RuntimeError> {
         self.require_health(RuntimeHealth::Starting)?;
 
@@ -76,8 +77,13 @@ impl Runtime {
 
         self.start_event_consumer();
 
-        if self.context.config.plugins.enabled && self.context.config.synthetic_sensor.enabled {
-            self.start_synthetic_sensor()?;
+        if self.context.config.plugins.enabled {
+            if self.context.config.synthetic_sensor.enabled {
+                self.start_synthetic_sensor()?;
+            }
+            if self.context.config.sensors.csi_replay.enabled {
+                self.start_csi_replay()?;
+            }
         }
 
         tracing::info!("runtime entering running state");
@@ -116,10 +122,15 @@ impl Runtime {
 
             for plugin_id in running_plugins {
                 self.context.plugin_runtime.stop(&plugin_id)?;
-                if plugin_id.as_str() == PLUGIN_ID {
+                if plugin_id.as_str() == SYNTHETIC_PLUGIN_ID {
                     self.context
                         .metrics
                         .set_sensor_lifecycle(LifecycleState::Stopped);
+                }
+                if plugin_id.as_str() == CSI_REPLAY_PLUGIN_ID {
+                    self.context
+                        .metrics
+                        .set_csi_lifecycle(LifecycleState::Stopped);
                 }
             }
         }
@@ -149,10 +160,11 @@ impl Runtime {
         }
 
         let timeout = Duration::from_millis(self.context.config.runtime.first_frame_timeout_ms);
-        let evaluated = self
-            .context
-            .metrics
-            .evaluate_health(self.context.config.synthetic_sensor.enabled, timeout);
+        let evaluated = self.context.metrics.evaluate_health(
+            self.context.config.synthetic_sensor.enabled,
+            self.context.config.sensors.csi_replay.enabled,
+            timeout,
+        );
 
         if evaluated == RuntimeHealth::Failed {
             self.health = RuntimeHealth::Failed;
@@ -176,7 +188,7 @@ impl Runtime {
     /// Returns a concise startup summary for operator output.
     pub fn startup_summary(&self) -> String {
         format!(
-            "Aeryon {} | environment={} | plugins={} | synthetic={} | status={}",
+            "Aeryon {} | environment={} | plugins={} | synthetic={} | csi_replay={} | status={}",
             self.context.version,
             self.context.config.application.environment,
             if self.context.config.plugins.enabled {
@@ -185,6 +197,11 @@ impl Runtime {
                 "disabled"
             },
             if self.context.config.synthetic_sensor.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            if self.context.config.sensors.csi_replay.enabled {
                 "enabled"
             } else {
                 "disabled"
@@ -225,6 +242,16 @@ impl Runtime {
                             );
                         }
                     }
+                    Ok(Event::CsiFrameReceived(frame)) => {
+                        metrics.record_frame(frame.sequence, frame.capture_timestamp.as_nanos());
+                        tracing::debug!(
+                            sequence = frame.sequence,
+                            frame_id = frame.frame_id.value(),
+                            sensor_id = frame.sensor_id.value(),
+                            source = frame.source.as_str(),
+                            "CSI frame event received"
+                        );
+                    }
                     Ok(Event::SensorStarted(event)) => {
                         tracing::info!(sensor_id = event.sensor_id.value(), "sensor started event");
                     }
@@ -238,6 +265,33 @@ impl Runtime {
                             "sensor failed event"
                         );
                         metrics.set_sensor_lifecycle(LifecycleState::Failed);
+                    }
+                    Ok(Event::CsiReplayStarted(event)) => {
+                        tracing::info!(
+                            sensor_id = event.sensor_id.value(),
+                            "CSI replay started event"
+                        );
+                    }
+                    Ok(Event::CsiReplayCompleted(event)) => {
+                        tracing::info!(
+                            sensor_id = event.sensor_id.value(),
+                            frames = event.frames_accepted,
+                            "CSI replay completed event"
+                        );
+                    }
+                    Ok(Event::CsiReplayStopped(event)) => {
+                        tracing::info!(
+                            sensor_id = event.sensor_id.value(),
+                            "CSI replay stopped event"
+                        );
+                    }
+                    Ok(Event::CsiReplayFailed(event)) => {
+                        tracing::error!(
+                            sensor_id = event.sensor_id.value(),
+                            kind = ?event.kind,
+                            "CSI replay failed event"
+                        );
+                        metrics.set_csi_lifecycle(LifecycleState::Failed);
                     }
                     Ok(_) => {}
                     Err(aeryon_events::BusError::Closed) => break,
@@ -256,7 +310,7 @@ impl Runtime {
             self.context.config.synthetic_sensor.clone(),
             self.context.event_bus.clone(),
         );
-        let plugin_id = PluginId::new(PLUGIN_ID);
+        let plugin_id = PluginId::new(SYNTHETIC_PLUGIN_ID);
 
         self.context.plugin_runtime.register(Box::new(plugin))?;
         self.context
@@ -268,13 +322,47 @@ impl Runtime {
                 self.context
                     .metrics
                     .set_sensor_lifecycle(LifecycleState::Running);
-                tracing::info!(plugin = PLUGIN_ID, "synthetic sensor plugin started");
+                tracing::info!(
+                    plugin = SYNTHETIC_PLUGIN_ID,
+                    "synthetic sensor plugin started"
+                );
                 Ok(())
             }
             Err(error) => {
                 self.context
                     .metrics
                     .set_sensor_lifecycle(LifecycleState::Failed);
+                self.health = RuntimeHealth::Failed;
+                Err(error.into())
+            }
+        }
+    }
+
+    fn start_csi_replay(&mut self) -> Result<(), RuntimeError> {
+        let plugin = CsiReplayPlugin::with_stats(
+            self.context.config.sensors.csi_replay.clone(),
+            self.context.event_bus.clone(),
+            Arc::clone(self.context.metrics.csi_replay()),
+        );
+        let plugin_id = PluginId::new(CSI_REPLAY_PLUGIN_ID);
+
+        self.context.plugin_runtime.register(Box::new(plugin))?;
+        self.context
+            .metrics
+            .set_csi_lifecycle(LifecycleState::Registered);
+
+        match self.context.plugin_runtime.start(&plugin_id) {
+            Ok(()) => {
+                self.context
+                    .metrics
+                    .set_csi_lifecycle(LifecycleState::Running);
+                tracing::info!(plugin = CSI_REPLAY_PLUGIN_ID, "CSI replay plugin started");
+                Ok(())
+            }
+            Err(error) => {
+                self.context
+                    .metrics
+                    .set_csi_lifecycle(LifecycleState::Failed);
                 self.health = RuntimeHealth::Failed;
                 Err(error.into())
             }
@@ -297,6 +385,8 @@ impl Runtime {
 mod tests {
     use super::*;
     use aeryon_domain::Event;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
     use tokio::time::{Duration, timeout};
 
     fn test_config() -> AppConfig {
@@ -330,6 +420,58 @@ mod tests {
             "#,
         )
         .expect("valid test config")
+    }
+
+    fn csi_test_config(path: &str) -> AppConfig {
+        AppConfig::from_toml(&format!(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "error"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+            first_frame_timeout_ms = 2000
+
+            [synthetic_sensor]
+            enabled = false
+
+            [sensors.csi_replay]
+            enabled = true
+            path = "{path}"
+            loop_playback = false
+            frame_interval_ms = 10
+            maximum_frames = 5
+            "#
+        ))
+        .expect("valid csi config")
+    }
+
+    fn write_csi_fixture() -> NamedTempFile {
+        let mut file = NamedTempFile::new().expect("temp");
+        writeln!(
+            file,
+            r#"{{"record_type":"header","schema":"aeryon-csi-fixture","version":1,"sensor_id":"2","description":"runtime test","sample_layout":"rx-tx-subcarrier"}}"#
+        )
+        .expect("header");
+        for sequence in 0..8 {
+            writeln!(
+                file,
+                r#"{{"record_type":"frame","frame_id":{},"sequence":{},"capture_timestamp_nanos":{},"center_frequency_hz":5180000000.0,"bandwidth_hz":20000000.0,"receive_antennas":2,"transmit_antennas":1,"subcarrier_indices":[0,1],"samples":[{{"re":1.0,"im":0.0}},{{"re":0.0,"im":1.0}},{{"re":2.0,"im":0.0}},{{"re":0.0,"im":2.0}}]}}"#,
+                sequence + 1,
+                sequence,
+                1_000 + sequence
+            )
+            .expect("frame");
+        }
+        file
     }
 
     #[tokio::test]
@@ -402,7 +544,49 @@ mod tests {
             runtime
                 .context()
                 .plugin_runtime
-                .lifecycle_state(&PluginId::new(PLUGIN_ID)),
+                .lifecycle_state(&PluginId::new(SYNTHETIC_PLUGIN_ID)),
+            Some(LifecycleState::Stopped)
+        );
+    }
+
+    #[tokio::test]
+    async fn csi_replay_integration_receives_ordered_frames() {
+        let fixture = write_csi_fixture();
+        let path = fixture.path().to_string_lossy().replace('\\', "/");
+        let mut runtime = Runtime::boot(csi_test_config(&path)).expect("boot");
+        let mut receiver = runtime.context().event_bus.subscribe();
+        runtime.start().expect("start");
+
+        let mut sequences = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while sequences.len() < 3 && tokio::time::Instant::now() < deadline {
+            match timeout(Duration::from_millis(500), receiver.recv()).await {
+                Ok(Ok(Event::CsiFrameReceived(frame))) => {
+                    assert_eq!(frame.receive_antennas, 2);
+                    assert_eq!(frame.transmit_antennas, 1);
+                    assert_eq!(frame.subcarrier_count, 2);
+                    sequences.push(frame.sequence);
+                }
+                Ok(Ok(_)) => {}
+                _ => break,
+            }
+        }
+
+        assert!(
+            sequences.len() >= 3,
+            "expected at least 3 CSI frames, got {sequences:?}"
+        );
+        assert!(sequences.windows(2).all(|pair| pair[1] == pair[0] + 1));
+        assert!(runtime.metrics().frames_received() >= 3);
+        assert!(runtime.metrics().csi_replay().frames_accepted() >= 3);
+
+        runtime.shutdown().expect("shutdown");
+        assert!(!runtime.metrics().consumer_running());
+        assert_eq!(
+            runtime
+                .context()
+                .plugin_runtime
+                .lifecycle_state(&PluginId::new(CSI_REPLAY_PLUGIN_ID)),
             Some(LifecycleState::Stopped)
         );
     }

@@ -2,7 +2,12 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { Dashboard } from '../components/Dashboard'
-import type { ApiEventEnvelope, RuntimeSnapshot, SyntheticSensorSnapshot } from '../api/types'
+import type {
+  ApiEventEnvelope,
+  CsiReplaySnapshot,
+  RuntimeSnapshot,
+  SyntheticSensorSnapshot,
+} from '../api/types'
 import { MAX_EVENTS } from '../hooks/useDashboard'
 
 const runtime: RuntimeSnapshot = {
@@ -18,6 +23,9 @@ const runtime: RuntimeSnapshot = {
   last_frame_timestamp: '2026-07-19T00:00:01.000Z',
   synthetic_sensor_lifecycle: 'running',
   synthetic_source_enabled: true,
+  csi_replay_lifecycle: null,
+  csi_replay_enabled: false,
+  active_source: 'synthetic',
 }
 
 const sensor: SyntheticSensorSnapshot = {
@@ -36,6 +44,29 @@ const sensor: SyntheticSensorSnapshot = {
   health: 'healthy',
 }
 
+const csiReplay: CsiReplaySnapshot = {
+  enabled: true,
+  lifecycle_state: 'running',
+  health: 'healthy',
+  source_type: 'csi_replay',
+  data_classification: 'deterministic_development_fixture',
+  fixture_path: 'datasets/fixtures/csi/synthetic_dev_v1.ndjson',
+  loop_playback: false,
+  frame_interval_ms: 100,
+  maximum_frames: 0,
+  frames_read: 4,
+  frames_accepted: 4,
+  frames_rejected: 0,
+  latest_sequence: 3,
+  latest_frame_timestamp: '2026-07-19T00:00:01.000Z',
+  receive_antennas: 2,
+  transmit_antennas: 1,
+  subcarrier_count: 16,
+  center_frequency_hz: 5_180_000_000,
+  bandwidth_hz: 20_000_000,
+  completion: 'active',
+}
+
 function baseProps(
   overrides: Partial<Parameters<typeof Dashboard>[0]> = {},
 ): Parameters<typeof Dashboard>[0] {
@@ -43,6 +74,7 @@ function baseProps(
     connection: 'connected',
     runtime,
     sensor,
+    csiReplay: null,
     events: [],
     framesReceived: 3,
     latestSequence: 2,
@@ -119,5 +151,37 @@ describe('Dashboard', () => {
     render(<Dashboard {...baseProps()} />)
     expect(screen.getByText(/Not WiFi CSI/i)).toBeInTheDocument()
     expect(screen.getByTestId('source-badge')).toHaveTextContent(/Synthetic/i)
+  })
+
+  it('labels CSI replay development source honestly', () => {
+    render(
+      <Dashboard
+        {...baseProps({
+          runtime: {
+            ...runtime,
+            synthetic_source_enabled: false,
+            csi_replay_enabled: true,
+            active_source: 'csi_replay',
+            csi_replay_lifecycle: 'running',
+          },
+          csiReplay,
+          events: [
+            {
+              version: 1,
+              type: 'csi_frame',
+              timestamp: '2026-07-19T00:00:02.000Z',
+              payload: { sequence: 3, source_type: 'csi_replay' },
+            },
+          ],
+        })}
+      />,
+    )
+    expect(screen.getByTestId('source-badge')).toHaveTextContent(
+      'CSI Replay Development Source',
+    )
+    expect(screen.getByTestId('source-note')).toHaveTextContent(/Not live WiFi CSI/i)
+    expect(screen.getByTestId('csi-replay-snapshot')).toHaveTextContent('2 × 1')
+    expect(screen.getByTestId('csi-completion')).toHaveTextContent('active')
+    expect(screen.getByTestId('event-timeline')).toHaveTextContent('csi_frame')
   })
 })

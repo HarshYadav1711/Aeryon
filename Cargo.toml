@@ -5,6 +5,7 @@ members = [
     "apps/cli",
     "core/acquisition",
     "core/calibration",
+    "core/csi",
     "core/dsp",
     "core/features",
     "core/inference",
@@ -18,6 +19,7 @@ members = [
     "core/plugin-runtime",
     "core/runtime",
     "plugins/synthetic-sensor",
+    "plugins/csi-replay",
 ]
 
 [workspace.package]

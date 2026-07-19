@@ -28,3 +28,13 @@ primary_frequency_hz = 10.0
 secondary_frequency_hz = 37.0
 secondary_amplitude = 0.25
 log_every_n_frames = 10
+
+# Only one active development source at a time. To use CSI fixture replay:
+# 1) set synthetic_sensor.enabled = false
+# 2) set sensors.csi_replay.enabled = true
+[sensors.csi_replay]
+enabled = false
+path = "datasets/fixtures/csi/synthetic_dev_v1.ndjson"
+loop_playback = false
+frame_interval_ms = 100
+maximum_frames = 0

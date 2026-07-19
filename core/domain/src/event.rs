@@ -1,10 +1,117 @@
 //! Strongly typed domain events.
 
+use std::sync::Arc;
+
 use crate::ids::{EntityId, FrameId, MissionId, SensorId};
 use crate::observation::Observation;
 use crate::pipeline::PipelineStageId;
 use crate::time::Timestamp;
 use crate::world::{WorldEntity, WorldRelationship};
+
+/// Origin classification for CSI metadata events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CsiDataSource {
+    /// Deterministic development fixture replay (not live RF).
+    Replay,
+    /// Live hardware capture.
+    Live,
+}
+
+impl CsiDataSource {
+    /// Stable wire label.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Replay => "csi_replay",
+            Self::Live => "csi_live",
+        }
+    }
+}
+
+/// CSI replay plugin started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CsiReplayStarted {
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Start timestamp.
+    pub timestamp: Timestamp,
+}
+
+/// Lightweight CSI frame metadata published on the event bus.
+///
+/// The complex sample matrix is intentionally omitted. Optional shared ownership
+/// of a modality-agnostic payload token allows producers to retain frames without
+/// forcing every subscriber to clone sample data.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CsiFrameReceived {
+    /// Frame identifier.
+    pub frame_id: FrameId,
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Monotonic sequence number.
+    pub sequence: u64,
+    /// Capture / acquisition timestamp.
+    pub capture_timestamp: Timestamp,
+    /// Receive or replay timestamp.
+    pub receive_timestamp: Timestamp,
+    /// Receive antenna count.
+    pub receive_antennas: u16,
+    /// Transmit antenna count.
+    pub transmit_antennas: u16,
+    /// Number of subcarriers.
+    pub subcarrier_count: u16,
+    /// Optional center frequency in hertz.
+    pub center_frequency_hz: Option<f64>,
+    /// Optional channel bandwidth in hertz.
+    pub bandwidth_hz: Option<f64>,
+    /// Frame origin classification.
+    pub source: CsiDataSource,
+    /// Optional shared handle retained by producers (for example an `Arc` token).
+    pub frame_token: Option<Arc<()>>,
+}
+
+/// CSI fixture replay completed a finite pass without failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CsiReplayCompleted {
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Completion timestamp.
+    pub timestamp: Timestamp,
+    /// Number of frames accepted during the completed pass.
+    pub frames_accepted: u64,
+}
+
+/// CSI replay plugin stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CsiReplayStopped {
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Stop timestamp.
+    pub timestamp: Timestamp,
+}
+
+/// Classification of a CSI replay failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CsiReplayFailureKind {
+    /// Fixture could not be opened or parsed.
+    FixtureError,
+    /// A malformed frame was encountered.
+    MalformedFrame,
+    /// Publishing a CSI event failed.
+    PublishFailed,
+    /// The producer task exited unexpectedly.
+    ProducerExited,
+}
+
+/// CSI replay entered a failure state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CsiReplayFailed {
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Failure timestamp.
+    pub timestamp: Timestamp,
+    /// Failure classification.
+    pub kind: CsiReplayFailureKind,
+}
 
 /// A frame was received from a sensor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +232,16 @@ pub enum Event {
     SensorStopped(SensorStopped),
     /// A sensor entered a failure state.
     SensorFailed(SensorFailed),
+    /// CSI replay started producing frames.
+    CsiReplayStarted(CsiReplayStarted),
+    /// A CSI frame metadata event was received.
+    CsiFrameReceived(CsiFrameReceived),
+    /// CSI replay completed a finite fixture pass.
+    CsiReplayCompleted(CsiReplayCompleted),
+    /// CSI replay stopped.
+    CsiReplayStopped(CsiReplayStopped),
+    /// CSI replay failed.
+    CsiReplayFailed(CsiReplayFailed),
     /// An observation was recorded.
     ObservationRecorded(ObservationRecorded),
     /// An entity was added or updated.
@@ -147,6 +264,11 @@ impl Event {
             Self::SensorStarted(event) => event.timestamp,
             Self::SensorStopped(event) => event.timestamp,
             Self::SensorFailed(event) => event.timestamp,
+            Self::CsiReplayStarted(event) => event.timestamp,
+            Self::CsiFrameReceived(event) => event.receive_timestamp,
+            Self::CsiReplayCompleted(event) => event.timestamp,
+            Self::CsiReplayStopped(event) => event.timestamp,
+            Self::CsiReplayFailed(event) => event.timestamp,
             Self::ObservationRecorded(event) => event.observation.timestamp,
             Self::EntityUpserted(event) => event.entity.last_updated,
             Self::EntityRemoved(event) => event.timestamp,
@@ -310,5 +432,29 @@ mod tests {
         };
         let event = Event::RelationshipUpserted(RelationshipUpserted { relationship });
         assert!(matches!(event, Event::RelationshipUpserted(_)));
+    }
+
+    #[test]
+    fn csi_replay_events_carry_timestamps() {
+        let started = Event::CsiReplayStarted(CsiReplayStarted {
+            sensor_id: SensorId::new(2),
+            timestamp: Timestamp::from_nanos(11),
+        });
+        let frame = Event::CsiFrameReceived(CsiFrameReceived {
+            frame_id: FrameId::new(1),
+            sensor_id: SensorId::new(2),
+            sequence: 0,
+            capture_timestamp: Timestamp::from_nanos(10),
+            receive_timestamp: Timestamp::from_nanos(12),
+            receive_antennas: 2,
+            transmit_antennas: 1,
+            subcarrier_count: 16,
+            center_frequency_hz: Some(5_180_000_000.0),
+            bandwidth_hz: Some(20_000_000.0),
+            source: CsiDataSource::Replay,
+            frame_token: None,
+        });
+        assert_eq!(started.timestamp(), Timestamp::from_nanos(11));
+        assert_eq!(frame.timestamp(), Timestamp::from_nanos(12));
     }
 }

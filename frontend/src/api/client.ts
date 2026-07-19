@@ -1,4 +1,5 @@
 import type {
+  CsiReplaySnapshot,
   HealthResponse,
   PluginsResponse,
   RuntimeSnapshot,
@@ -70,5 +71,8 @@ export const apiClient = {
   },
   getSyntheticSensor(): Promise<SyntheticSensorSnapshot> {
     return getJson<SyntheticSensorSnapshot>('/api/v1/sensors/synthetic')
+  },
+  getCsiReplay(): Promise<CsiReplaySnapshot> {
+    return getJson<CsiReplaySnapshot>('/api/v1/sensors/csi-replay')
   },
 }

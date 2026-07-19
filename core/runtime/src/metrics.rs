@@ -4,12 +4,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use aeryon_csi_replay::{CsiReplayCompletion, CsiReplayStats};
 use aeryon_plugin_runtime::LifecycleState;
 
 use crate::health::RuntimeHealth;
 
 /// Shared counters updated by the event consumer and plugin lifecycle.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct RuntimeMetrics {
     frames_received: AtomicU64,
     last_sequence: AtomicU64,
@@ -17,18 +18,44 @@ pub struct RuntimeMetrics {
     has_frame: AtomicBool,
     consumer_running: AtomicBool,
     sensor_lifecycle: AtomicU64,
+    csi_lifecycle: AtomicU64,
     started_at: std::sync::Mutex<Option<Instant>>,
+    csi_started_at: std::sync::Mutex<Option<Instant>>,
+    /// Dedicated CSI replay statistics (shared with the replay plugin).
+    csi_replay: Arc<CsiReplayStats>,
+}
+
+impl Default for RuntimeMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RuntimeMetrics {
     /// Creates empty metrics.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            frames_received: AtomicU64::new(0),
+            last_sequence: AtomicU64::new(0),
+            last_frame_nanos: AtomicU64::new(0),
+            has_frame: AtomicBool::new(false),
+            consumer_running: AtomicBool::new(false),
+            sensor_lifecycle: AtomicU64::new(0),
+            csi_lifecycle: AtomicU64::new(0),
+            started_at: std::sync::Mutex::new(None),
+            csi_started_at: std::sync::Mutex::new(None),
+            csi_replay: CsiReplayStats::new().shared(),
+        }
     }
 
     /// Wraps metrics in an [`Arc`] for shared ownership.
     pub fn shared(self) -> Arc<Self> {
         Arc::new(self)
+    }
+
+    /// Returns the shared CSI replay statistics handle.
+    pub fn csi_replay(&self) -> &Arc<CsiReplayStats> {
+        &self.csi_replay
     }
 
     /// Records that the event consumer task is running.
@@ -57,7 +84,23 @@ impl RuntimeMetrics {
         u64_to_lifecycle(self.sensor_lifecycle.load(Ordering::Relaxed))
     }
 
-    /// Records a received frame event.
+    /// Records the CSI replay plugin lifecycle state.
+    pub fn set_csi_lifecycle(&self, state: LifecycleState) {
+        self.csi_lifecycle
+            .store(lifecycle_to_u64(state), Ordering::Relaxed);
+        if state == LifecycleState::Running {
+            if let Ok(mut guard) = self.csi_started_at.lock() {
+                *guard = Some(Instant::now());
+            }
+        }
+    }
+
+    /// Returns the tracked CSI replay lifecycle state, if known.
+    pub fn csi_lifecycle(&self) -> Option<LifecycleState> {
+        u64_to_lifecycle(self.csi_lifecycle.load(Ordering::Relaxed))
+    }
+
+    /// Records a received frame event (synthetic or CSI metadata).
     pub fn record_frame(&self, sequence: u64, timestamp_nanos: u64) {
         self.frames_received.fetch_add(1, Ordering::Relaxed);
         self.last_sequence.store(sequence, Ordering::Relaxed);
@@ -92,23 +135,58 @@ impl RuntimeMetrics {
     /// Evaluates whether the runtime should report degraded or failed health.
     pub fn evaluate_health(
         &self,
-        sensor_enabled: bool,
+        synthetic_enabled: bool,
+        csi_replay_enabled: bool,
         first_frame_timeout: Duration,
     ) -> RuntimeHealth {
-        if !sensor_enabled {
-            return RuntimeHealth::Running;
-        }
-
-        if !self.consumer_running() {
+        if !self.consumer_running() && (synthetic_enabled || csi_replay_enabled) {
             return RuntimeHealth::Failed;
         }
 
-        match self.sensor_lifecycle() {
+        if synthetic_enabled {
+            match self.evaluate_source_health(
+                self.sensor_lifecycle(),
+                &self.started_at,
+                first_frame_timeout,
+            ) {
+                RuntimeHealth::Failed => return RuntimeHealth::Failed,
+                RuntimeHealth::Degraded => return RuntimeHealth::Degraded,
+                _ => {}
+            }
+        }
+
+        if csi_replay_enabled {
+            // Finite CSI replay completion must not be treated as failure.
+            match self.csi_replay.completion() {
+                CsiReplayCompletion::Failed => return RuntimeHealth::Failed,
+                CsiReplayCompletion::Completed | CsiReplayCompletion::Stopped => {
+                    return RuntimeHealth::Running;
+                }
+                CsiReplayCompletion::Active | CsiReplayCompletion::Idle => {}
+            }
+
+            return self.evaluate_source_health(
+                self.csi_lifecycle(),
+                &self.csi_started_at,
+                first_frame_timeout,
+            );
+        }
+
+        RuntimeHealth::Running
+    }
+
+    fn evaluate_source_health(
+        &self,
+        lifecycle: Option<LifecycleState>,
+        started_at: &std::sync::Mutex<Option<Instant>>,
+        first_frame_timeout: Duration,
+    ) -> RuntimeHealth {
+        match lifecycle {
             Some(LifecycleState::Failed) => RuntimeHealth::Failed,
             Some(LifecycleState::Running) => {
                 if self.has_frame.load(Ordering::Relaxed) {
                     RuntimeHealth::Running
-                } else if let Ok(guard) = self.started_at.lock() {
+                } else if let Ok(guard) = started_at.lock() {
                     if guard.is_some_and(|started| started.elapsed() > first_frame_timeout) {
                         RuntimeHealth::Degraded
                     } else {
@@ -118,11 +196,10 @@ impl RuntimeMetrics {
                     RuntimeHealth::Running
                 }
             }
-            Some(LifecycleState::Stopped) | Some(LifecycleState::Registered) => {
-                RuntimeHealth::Running
-            }
-            Some(LifecycleState::Initialized) => RuntimeHealth::Running,
-            None => RuntimeHealth::Running,
+            Some(LifecycleState::Stopped)
+            | Some(LifecycleState::Registered)
+            | Some(LifecycleState::Initialized)
+            | None => RuntimeHealth::Running,
         }
     }
 }
@@ -171,8 +248,22 @@ mod tests {
             *guard = Some(Instant::now() - Duration::from_secs(5));
         }
         assert_eq!(
-            metrics.evaluate_health(true, Duration::from_secs(1)),
+            metrics.evaluate_health(true, false, Duration::from_secs(1)),
             RuntimeHealth::Degraded
+        );
+    }
+
+    #[test]
+    fn csi_finite_completion_is_not_failure() {
+        let metrics = RuntimeMetrics::new();
+        metrics.set_consumer_running(true);
+        metrics.set_csi_lifecycle(LifecycleState::Running);
+        metrics
+            .csi_replay()
+            .set_completion(CsiReplayCompletion::Completed);
+        assert_eq!(
+            metrics.evaluate_health(false, true, Duration::from_secs(1)),
+            RuntimeHealth::Running
         );
     }
 }

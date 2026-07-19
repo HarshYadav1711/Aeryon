@@ -5,6 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::str::FromStr;
 
+use aeryon_csi_replay::CsiReplayConfig;
 use aeryon_synthetic_sensor::SyntheticSensorConfig;
 use serde::Deserialize;
 
@@ -41,6 +42,13 @@ primary_frequency_hz = 10.0
 secondary_frequency_hz = 37.0
 secondary_amplitude = 0.25
 log_every_n_frames = 10
+
+[sensors.csi_replay]
+enabled = false
+path = "datasets/fixtures/csi/synthetic_dev_v1.ndjson"
+loop_playback = false
+frame_interval_ms = 100
+maximum_frames = 0
 "#;
 
 /// Top-level application configuration.
@@ -60,6 +68,17 @@ pub struct AppConfig {
     /// Synthetic sensor configuration.
     #[serde(default)]
     pub synthetic_sensor: SyntheticSensorConfig,
+    /// Sensor plugin configuration group.
+    #[serde(default)]
+    pub sensors: SensorsConfig,
+}
+
+/// Nested sensor plugin configuration sections.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+pub struct SensorsConfig {
+    /// CSI fixture replay configuration.
+    #[serde(default)]
+    pub csi_replay: CsiReplayConfig,
 }
 
 /// Application metadata and environment settings.
@@ -92,7 +111,7 @@ pub struct PluginsConfig {
 pub struct RuntimeSettings {
     /// Graceful shutdown timeout in seconds.
     pub shutdown_timeout_secs: u64,
-    /// Maximum wait for the first synthetic frame after sensor start.
+    /// Maximum wait for the first frame after sensor start.
     #[serde(default = "default_first_frame_timeout_ms")]
     pub first_frame_timeout_ms: u64,
 }
@@ -253,6 +272,13 @@ impl AppConfig {
         self.synthetic_sensor
             .validate()
             .map_err(ConfigError::Synthetic)?;
+        self.sensors
+            .csi_replay
+            .validate()
+            .map_err(ConfigError::CsiReplay)?;
+        if self.synthetic_sensor.enabled && self.sensors.csi_replay.enabled {
+            return Err(ConfigError::ConflictingSensorSources);
+        }
         Ok(())
     }
 }
@@ -274,6 +300,7 @@ mod tests {
         assert_eq!(config.logging.level, "info");
         assert!(config.plugins.enabled);
         assert!(config.synthetic_sensor.enabled);
+        assert!(!config.sensors.csi_replay.enabled);
     }
 
     #[test]
@@ -307,6 +334,43 @@ mod tests {
         )
         .expect_err("invalid synthetic config");
         assert!(matches!(error, ConfigError::Synthetic(_)));
+    }
+
+    #[test]
+    fn conflicting_sensor_sources_are_rejected() {
+        let error = AppConfig::from_toml(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "info"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+
+            [synthetic_sensor]
+            enabled = true
+
+            [sensors.csi_replay]
+            enabled = true
+            path = "datasets/fixtures/csi/synthetic_dev_v1.ndjson"
+            frame_interval_ms = 100
+            "#,
+        )
+        .expect_err("rejected");
+        assert!(
+            matches!(
+                error,
+                ConfigError::ConflictingSensorSources | ConfigError::CsiReplay(_)
+            ),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
