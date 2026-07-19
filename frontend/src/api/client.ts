@@ -1,4 +1,5 @@
 import type {
+  CalibrationSnapshot,
   CsiReplaySnapshot,
   HealthResponse,
   PluginsResponse,
@@ -74,5 +75,8 @@ export const apiClient = {
   },
   getCsiReplay(): Promise<CsiReplaySnapshot> {
     return getJson<CsiReplaySnapshot>('/api/v1/sensors/csi-replay')
+  },
+  getCalibration(): Promise<CalibrationSnapshot> {
+    return getJson<CalibrationSnapshot>('/api/v1/calibration')
   },
 }

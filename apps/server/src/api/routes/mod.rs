@@ -1,5 +1,6 @@
 //! HTTP and WebSocket route handlers.
 
+mod calibration;
 mod events;
 mod health;
 mod plugins;
@@ -34,6 +35,7 @@ pub fn build_router(state: AppState, api: &ApiConfig) -> Router {
             "/api/v1/sensors/csi-replay",
             get(sensors::csi_replay_handler),
         )
+        .route("/api/v1/calibration", get(calibration::calibration_handler))
         .route("/api/v1/events/ws", get(events::events_ws_handler))
         .fallback(api_not_found)
         .layer(cors)

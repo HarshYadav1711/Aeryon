@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use aeryon_calibration::CalibrationPipeline;
 use aeryon_csi_replay::{CsiReplayPlugin, PLUGIN_ID as CSI_REPLAY_PLUGIN_ID};
 use aeryon_domain::Event;
 use aeryon_events::EventBus;
@@ -10,6 +11,8 @@ use aeryon_plugin_runtime::{LifecycleState, PluginId, PluginRuntime};
 use aeryon_synthetic_sensor::{PLUGIN_ID as SYNTHETIC_PLUGIN_ID, SyntheticSensorPlugin};
 use tokio::task::JoinHandle;
 
+use crate::calibration_service::CalibrationService;
+use crate::calibration_stats::CalibrationWorkerState;
 use crate::config::AppConfig;
 use crate::context::AppContext;
 use crate::error::{LoggingError, RuntimeError};
@@ -22,6 +25,7 @@ pub struct Runtime {
     context: AppContext,
     health: RuntimeHealth,
     consumer_task: Option<JoinHandle<()>>,
+    calibration_service: Option<CalibrationService>,
 }
 
 impl Runtime {
@@ -61,6 +65,7 @@ impl Runtime {
             context,
             health: RuntimeHealth::Starting,
             consumer_task: None,
+            calibration_service: None,
         })
     }
 
@@ -76,6 +81,23 @@ impl Runtime {
         }
 
         self.start_event_consumer();
+
+        // Configure calibration stats for API visibility even when disabled.
+        if self.context.config.calibration.enabled {
+            if let Ok(profile) = self.context.config.calibration.resolve_profile() {
+                self.context.metrics.calibration().configure(
+                    true,
+                    Some(&profile.id),
+                    profile.version,
+                );
+            }
+        } else {
+            self.context.metrics.calibration().configure(false, None, 0);
+            self.context
+                .metrics
+                .calibration()
+                .set_worker_state(CalibrationWorkerState::Disabled);
+        }
 
         if self.context.config.plugins.enabled {
             if self.context.config.synthetic_sensor.enabled {
@@ -135,6 +157,14 @@ impl Runtime {
             }
         }
 
+        if let Some(mut service) = self.calibration_service.take() {
+            service.shutdown();
+            self.context
+                .metrics
+                .calibration()
+                .set_worker_state(CalibrationWorkerState::Stopped);
+        }
+
         if let Some(task) = self.consumer_task.take() {
             task.abort();
         }
@@ -188,7 +218,7 @@ impl Runtime {
     /// Returns a concise startup summary for operator output.
     pub fn startup_summary(&self) -> String {
         format!(
-            "Aeryon {} | environment={} | plugins={} | synthetic={} | csi_replay={} | status={}",
+            "Aeryon {} | environment={} | plugins={} | synthetic={} | csi_replay={} | calibration={} | status={}",
             self.context.version,
             self.context.config.application.environment,
             if self.context.config.plugins.enabled {
@@ -202,6 +232,11 @@ impl Runtime {
                 "disabled"
             },
             if self.context.config.sensors.csi_replay.enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            if self.context.config.calibration.enabled {
                 "enabled"
             } else {
                 "disabled"
@@ -293,6 +328,31 @@ impl Runtime {
                         );
                         metrics.set_csi_lifecycle(LifecycleState::Failed);
                     }
+                    Ok(Event::CalibrationStarted(event)) => {
+                        tracing::info!(
+                            profile = %event.profile_id,
+                            version = event.profile_version,
+                            "calibration started event"
+                        );
+                    }
+                    Ok(Event::CsiFrameCalibrated(event)) => {
+                        tracing::debug!(
+                            sequence = event.sequence,
+                            frame_id = event.raw_frame_id.value(),
+                            duration_ns = event.calibration_duration_ns,
+                            "CSI frame calibrated event"
+                        );
+                    }
+                    Ok(Event::CalibrationFailed(event)) => {
+                        tracing::warn!(
+                            sequence = ?event.sequence,
+                            code = event.code.as_str(),
+                            "calibration failed event"
+                        );
+                    }
+                    Ok(Event::CalibrationServiceStopped(_)) => {
+                        tracing::info!("calibration service stopped event");
+                    }
                     Ok(_) => {}
                     Err(aeryon_events::BusError::Closed) => break,
                     Err(aeryon_events::BusError::Lagged(n)) => {
@@ -339,10 +399,35 @@ impl Runtime {
     }
 
     fn start_csi_replay(&mut self) -> Result<(), RuntimeError> {
-        let plugin = CsiReplayPlugin::with_stats(
+        let mut frame_tx = None;
+        if self.context.config.calibration.enabled {
+            let profile = self
+                .context
+                .config
+                .calibration
+                .resolve_profile()
+                .map_err(crate::error::ConfigError::Calibration)?;
+            let pipeline = CalibrationPipeline::try_new(profile)
+                .map_err(crate::error::ConfigError::Calibration)?;
+            let mut service = CalibrationService::start(
+                self.context.event_bus.clone(),
+                pipeline,
+                Arc::clone(self.context.metrics.calibration()),
+                self.context.config.calibration.queue_capacity,
+            )?;
+            frame_tx = service.take_frame_tx();
+            self.calibration_service = Some(service);
+            tracing::info!(
+                profile = %self.context.config.calibration.profile,
+                "calibration service started"
+            );
+        }
+
+        let plugin = CsiReplayPlugin::with_stats_and_frame_tx(
             self.context.config.sensors.csi_replay.clone(),
             self.context.event_bus.clone(),
             Arc::clone(self.context.metrics.csi_replay()),
+            frame_tx,
         );
         let plugin_id = PluginId::new(CSI_REPLAY_PLUGIN_ID);
 
@@ -360,6 +445,9 @@ impl Runtime {
                 Ok(())
             }
             Err(error) => {
+                if let Some(mut service) = self.calibration_service.take() {
+                    service.shutdown();
+                }
                 self.context
                     .metrics
                     .set_csi_lifecycle(LifecycleState::Failed);
@@ -449,6 +537,11 @@ mod tests {
             loop_playback = false
             frame_interval_ms = 10
             maximum_frames = 5
+
+            [calibration]
+            enabled = true
+            profile = "baseline-csi-v1"
+            queue_capacity = 64
             "#
         ))
         .expect("valid csi config")
@@ -582,6 +675,67 @@ mod tests {
 
         runtime.shutdown().expect("shutdown");
         assert!(!runtime.metrics().consumer_running());
+        assert_eq!(
+            runtime
+                .context()
+                .plugin_runtime
+                .lifecycle_state(&PluginId::new(CSI_REPLAY_PLUGIN_ID)),
+            Some(LifecycleState::Stopped)
+        );
+    }
+
+    #[tokio::test]
+    async fn calibration_end_to_end_with_csi_replay() {
+        let fixture = write_csi_fixture();
+        let path = fixture.path().to_string_lossy().replace('\\', "/");
+        let mut runtime = Runtime::boot(csi_test_config(&path)).expect("boot");
+        let mut receiver = runtime.context().event_bus.subscribe();
+        runtime.start().expect("start");
+
+        let mut raw_sequences = Vec::new();
+        let mut calibrated = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while (raw_sequences.len() < 3 || calibrated.len() < 3)
+            && tokio::time::Instant::now() < deadline
+        {
+            match timeout(Duration::from_millis(500), receiver.recv()).await {
+                Ok(Ok(Event::CsiFrameReceived(frame))) => raw_sequences.push(frame.sequence),
+                Ok(Ok(Event::CsiFrameCalibrated(event))) => {
+                    assert_eq!(event.profile_id, "baseline-csi-v1");
+                    assert_eq!(event.profile_version, 1);
+                    assert_eq!(event.source.as_str(), "csi_replay");
+                    assert!(event.stage_count >= 1);
+                    calibrated.push((event.sequence, event.raw_frame_id.value()));
+                }
+                Ok(Ok(_)) => {}
+                _ => break,
+            }
+        }
+
+        assert!(
+            raw_sequences.len() >= 3,
+            "expected >=3 raw frames, got {raw_sequences:?}"
+        );
+        assert!(
+            calibrated.len() >= 3,
+            "expected >=3 calibrated frames, got {calibrated:?}"
+        );
+        assert!(calibrated.windows(2).all(|pair| pair[1].0 == pair[0].0 + 1));
+        assert!(
+            runtime.metrics().calibration().frames_calibrated() >= 3,
+            "expected calibration success counter >= 3"
+        );
+        assert!(runtime.metrics().calibration().raw_frames_submitted() >= 3);
+        assert_eq!(
+            runtime.metrics().calibration().profile_id().as_deref(),
+            Some("baseline-csi-v1")
+        );
+
+        runtime.shutdown().expect("shutdown");
+        assert_eq!(
+            runtime.metrics().calibration().worker_state(),
+            CalibrationWorkerState::Stopped
+        );
         assert_eq!(
             runtime
                 .context()

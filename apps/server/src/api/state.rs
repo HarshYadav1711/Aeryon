@@ -9,8 +9,8 @@ use aeryon_synthetic_sensor::PLUGIN_ID as SYNTHETIC_PLUGIN_ID;
 use tokio::sync::RwLock;
 
 use super::dto::{
-    ConfiguredFrequencies, CsiReplayHealthSummary, CsiReplaySnapshot, HealthResponse,
-    PluginSummary, PluginsResponse, RuntimeSnapshot, SyntheticHealthSummary,
+    CalibrationSnapshot, ConfiguredFrequencies, CsiReplayHealthSummary, CsiReplaySnapshot,
+    HealthResponse, PluginSummary, PluginsResponse, RuntimeSnapshot, SyntheticHealthSummary,
     SyntheticSensorSnapshot,
 };
 use super::time::{duration_secs, nanos_to_rfc3339, now_rfc3339, system_time_to_rfc3339};
@@ -230,6 +230,65 @@ impl AppState {
             bandwidth_hz: stats.bandwidth_hz(),
             completion: stats.completion().as_str().to_owned(),
             last_error: stats.last_error(),
+        }
+    }
+
+    /// Builds the calibration snapshot from config + live metrics.
+    pub async fn calibration_snapshot(&self) -> CalibrationSnapshot {
+        let runtime = self.runtime.read().await;
+        let context = runtime.context();
+        let stats = runtime.metrics().calibration();
+        let config = &context.config.calibration;
+
+        let (profile_id, profile_version, stages) = if config.enabled {
+            match config.resolve_profile() {
+                Ok(profile) => (
+                    Some(profile.id.clone()),
+                    Some(profile.version),
+                    profile
+                        .enabled_stage_names()
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect(),
+                ),
+                Err(_) => (stats.profile_id(), stats.profile_version(), Vec::new()),
+            }
+        } else {
+            (None, None, Vec::new())
+        };
+
+        let health = if !config.enabled {
+            "disabled".to_owned()
+        } else if let Some(impact) = stats.evaluate_health() {
+            impact.to_string()
+        } else {
+            match stats.worker_state() {
+                aeryon_runtime::CalibrationWorkerState::Failed => "failed".to_owned(),
+                aeryon_runtime::CalibrationWorkerState::Running => "healthy".to_owned(),
+                aeryon_runtime::CalibrationWorkerState::Stopped => "stopped".to_owned(),
+                aeryon_runtime::CalibrationWorkerState::Idle => "idle".to_owned(),
+                aeryon_runtime::CalibrationWorkerState::Disabled => "disabled".to_owned(),
+            }
+        };
+
+        CalibrationSnapshot {
+            enabled: config.enabled,
+            worker_state: stats.worker_state().as_str().to_owned(),
+            profile_id,
+            profile_version,
+            stages,
+            raw_frames_submitted: stats.raw_frames_submitted(),
+            frames_calibrated: stats.frames_calibrated(),
+            frames_failed: stats.calibration_failures(),
+            latest_sequence: stats.latest_sequence(),
+            latest_calibrated_timestamp: stats.latest_timestamp_nanos().map(nanos_to_rfc3339),
+            last_duration_ns: stats.last_duration_ns(),
+            average_duration_ns: stats.average_duration_ns(),
+            last_warning: stats.last_warning(),
+            last_error: stats.last_error(),
+            queue_depth: stats.queue_depth(),
+            health,
+            data_classification: "csi_replay_development_source",
         }
     }
 }

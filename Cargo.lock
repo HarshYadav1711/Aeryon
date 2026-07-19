@@ -9,6 +9,14 @@ version = "0.1.0"
 [[package]]
 name = "aeryon-calibration"
 version = "0.1.0"
+dependencies = [
+ "aeryon-csi",
+ "aeryon-domain",
+ "num-complex",
+ "serde",
+ "thiserror",
+ "tracing",
+]
 
 [[package]]
 name = "aeryon-cli"
@@ -88,6 +96,8 @@ version = "0.1.0"
 name = "aeryon-runtime"
 version = "0.1.0"
 dependencies = [
+ "aeryon-calibration",
+ "aeryon-csi",
  "aeryon-csi-replay",
  "aeryon-domain",
  "aeryon-events",

@@ -11,6 +11,8 @@ rust-version.workspace = true
 aeryon-domain = { path = "../domain" }
 aeryon-events = { path = "../events" }
 aeryon-plugin-runtime = { path = "../plugin-runtime" }
+aeryon-calibration = { path = "../calibration" }
+aeryon-csi = { path = "../csi" }
 aeryon-synthetic-sensor = { path = "../../plugins/synthetic-sensor" }
 aeryon-csi-replay = { path = "../../plugins/csi-replay" }
 serde = { version = "1", features = ["derive"] }

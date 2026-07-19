@@ -113,6 +113,121 @@ pub struct CsiReplayFailed {
     pub kind: CsiReplayFailureKind,
 }
 
+/// Calibration service started applying a profile.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalibrationStarted {
+    /// Start timestamp.
+    pub timestamp: Timestamp,
+    /// Active profile identity.
+    pub profile_id: String,
+    /// Active profile version.
+    pub profile_version: u32,
+}
+
+/// Metadata announcing a successfully calibrated CSI frame.
+///
+/// Complete calibrated sample matrices are intentionally omitted from the event
+/// bus. Frame data travels on the dedicated calibration data path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CsiFrameCalibrated {
+    /// Raw frame identifier.
+    pub raw_frame_id: FrameId,
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Monotonic sequence number.
+    pub sequence: u64,
+    /// Calibration profile identity.
+    pub profile_id: String,
+    /// Calibration profile version.
+    pub profile_version: u32,
+    /// Number of stages executed.
+    pub stage_count: u16,
+    /// Calibration duration in nanoseconds.
+    pub calibration_duration_ns: u64,
+    /// Receive antenna count.
+    pub receive_antennas: u16,
+    /// Transmit antenna count.
+    pub transmit_antennas: u16,
+    /// Subcarrier count.
+    pub subcarrier_count: u16,
+    /// Frame origin classification (CSI replay development data).
+    pub source: CsiDataSource,
+    /// Pipeline completion timestamp.
+    pub calibrated_at: Timestamp,
+}
+
+/// Machine-readable calibration failure codes for API surfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CalibrationFailureCode {
+    /// Profile construction or validation failed.
+    InvalidProfile,
+    /// Unsupported stage requested.
+    UnsupportedStage,
+    /// Malformed frame dimensions.
+    MalformedFrame,
+    /// Non-finite sample encountered.
+    NonFiniteSample,
+    /// Insufficient subcarrier information.
+    InsufficientSubcarriers,
+    /// Degenerate linear regression.
+    DegenerateRegression,
+    /// Zero-energy antenna link.
+    ZeroEnergyLink,
+    /// Generic stage failure.
+    StageFailure,
+    /// Output validation failure.
+    OutputValidation,
+    /// Pipeline unavailable or disabled unexpectedly.
+    PipelineUnavailable,
+    /// Calibration worker exited unexpectedly.
+    WorkerExited,
+}
+
+impl CalibrationFailureCode {
+    /// Stable wire label.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidProfile => "invalid_profile",
+            Self::UnsupportedStage => "unsupported_stage",
+            Self::MalformedFrame => "malformed_frame",
+            Self::NonFiniteSample => "non_finite_sample",
+            Self::InsufficientSubcarriers => "insufficient_subcarriers",
+            Self::DegenerateRegression => "degenerate_regression",
+            Self::ZeroEnergyLink => "zero_energy_link",
+            Self::StageFailure => "stage_failure",
+            Self::OutputValidation => "output_validation",
+            Self::PipelineUnavailable => "pipeline_unavailable",
+            Self::WorkerExited => "worker_exited",
+        }
+    }
+}
+
+/// Calibration failed for a frame or service-level fault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalibrationFailed {
+    /// Raw frame identifier when available.
+    pub raw_frame_id: Option<FrameId>,
+    /// Source sensor identifier when available.
+    pub sensor_id: Option<SensorId>,
+    /// Sequence when available.
+    pub sequence: Option<u64>,
+    /// Failure timestamp.
+    pub timestamp: Timestamp,
+    /// Failed stage label when applicable (for example `phase_unwrap`).
+    pub failed_stage: Option<String>,
+    /// Typed failure code.
+    pub code: CalibrationFailureCode,
+    /// Concise operator-safe message (no Rust debug dumps).
+    pub message: String,
+}
+
+/// Calibration service stopped cleanly or after cancel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CalibrationServiceStopped {
+    /// Stop timestamp.
+    pub timestamp: Timestamp,
+}
+
 /// A frame was received from a sensor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameReceived {
@@ -242,6 +357,14 @@ pub enum Event {
     CsiReplayStopped(CsiReplayStopped),
     /// CSI replay failed.
     CsiReplayFailed(CsiReplayFailed),
+    /// Calibration service started.
+    CalibrationStarted(CalibrationStarted),
+    /// A CSI frame was calibrated successfully (metadata only).
+    CsiFrameCalibrated(CsiFrameCalibrated),
+    /// Calibration failed for a frame or service fault.
+    CalibrationFailed(CalibrationFailed),
+    /// Calibration service stopped.
+    CalibrationServiceStopped(CalibrationServiceStopped),
     /// An observation was recorded.
     ObservationRecorded(ObservationRecorded),
     /// An entity was added or updated.
@@ -269,6 +392,10 @@ impl Event {
             Self::CsiReplayCompleted(event) => event.timestamp,
             Self::CsiReplayStopped(event) => event.timestamp,
             Self::CsiReplayFailed(event) => event.timestamp,
+            Self::CalibrationStarted(event) => event.timestamp,
+            Self::CsiFrameCalibrated(event) => event.calibrated_at,
+            Self::CalibrationFailed(event) => event.timestamp,
+            Self::CalibrationServiceStopped(event) => event.timestamp,
             Self::ObservationRecorded(event) => event.observation.timestamp,
             Self::EntityUpserted(event) => event.entity.last_updated,
             Self::EntityRemoved(event) => event.timestamp,

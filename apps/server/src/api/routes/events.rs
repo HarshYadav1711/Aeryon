@@ -13,8 +13,9 @@ use serde_json::json;
 use tokio::sync::{RwLock, mpsc};
 
 use crate::api::dto::{
-    ApiEventEnvelope, CsiFramePayload, CsiReplayLifecyclePayload, SensorFramePayload,
-    SensorLifecyclePayload,
+    ApiEventEnvelope, CalibrationFailedPayload, CalibrationServiceStoppedPayload,
+    CalibrationStartedPayload, CsiFrameCalibratedPayload, CsiFramePayload,
+    CsiReplayLifecyclePayload, SensorFramePayload, SensorLifecyclePayload,
 };
 use crate::api::state::AppState;
 use crate::api::time::{nanos_to_rfc3339, now_rfc3339};
@@ -232,6 +233,60 @@ fn domain_event_to_envelope(event: Event, samples_per_frame: usize) -> Option<Ap
             },
             nanos_to_rfc3339(event.timestamp.as_nanos()),
         )),
+        Event::CalibrationStarted(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "calibration_started".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(CalibrationStartedPayload {
+                profile_id: event.profile_id,
+                profile_version: event.profile_version,
+                data_classification: "csi_replay_development_source",
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::CsiFrameCalibrated(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "csi_frame_calibrated".to_owned(),
+            timestamp: nanos_to_rfc3339(event.calibrated_at.as_nanos()),
+            payload: serde_json::to_value(CsiFrameCalibratedPayload {
+                raw_frame_id: event.raw_frame_id.value(),
+                sensor_id: event.sensor_id.value(),
+                sequence: event.sequence,
+                profile_id: event.profile_id,
+                profile_version: event.profile_version,
+                stage_count: event.stage_count,
+                calibration_duration_ns: event.calibration_duration_ns,
+                receive_antennas: event.receive_antennas,
+                transmit_antennas: event.transmit_antennas,
+                subcarrier_count: event.subcarrier_count,
+                source_type: event.source.as_str(),
+                data_classification: "csi_replay_development_source",
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::CalibrationFailed(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "calibration_failed".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(CalibrationFailedPayload {
+                code: event.code.as_str().to_owned(),
+                message: event.message,
+                raw_frame_id: event.raw_frame_id.map(|id| id.value()),
+                sequence: event.sequence,
+                failed_stage: event.failed_stage,
+                data_classification: "csi_replay_development_source",
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::CalibrationServiceStopped(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "calibration_service_stopped".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(CalibrationServiceStoppedPayload {
+                data_classification: "csi_replay_development_source",
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
         _ => None,
     }
 }

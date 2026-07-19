@@ -1,5 +1,6 @@
 import type {
   ApiEventEnvelope,
+  CalibrationSnapshot,
   ConnectionState,
   CsiReplaySnapshot,
   RuntimeSnapshot,
@@ -11,6 +12,7 @@ export type DashboardProps = {
   runtime: RuntimeSnapshot | null
   sensor: SyntheticSensorSnapshot | null
   csiReplay: CsiReplaySnapshot | null
+  calibration: CalibrationSnapshot | null
   events: ApiEventEnvelope[]
   framesReceived: number
   latestSequence: number | null
@@ -97,11 +99,25 @@ function completionLabel(completion: string | undefined): string {
   }
 }
 
+function formatLatencyNs(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '—'
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2)} ms`
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)} µs`
+  }
+  return `${value} ns`
+}
+
 export function Dashboard({
   connection,
   runtime,
   sensor,
   csiReplay,
+  calibration,
   events,
   framesReceived,
   latestSequence,
@@ -272,6 +288,77 @@ export function Dashboard({
           )}
         </section>
       )}
+
+      <section className="panel" aria-labelledby="calibration-heading">
+        <h2 id="calibration-heading">Calibration</h2>
+        {calibration ? (
+          <dl className="metrics" data-testid="calibration-snapshot">
+            <div>
+              <dt>Enabled</dt>
+              <dd data-testid="calibration-enabled">{calibration.enabled ? 'yes' : 'no'}</dd>
+            </div>
+            <div>
+              <dt>Profile</dt>
+              <dd data-testid="calibration-profile">{calibration.profile_id ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Version</dt>
+              <dd>{calibration.profile_version ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Worker</dt>
+              <dd data-testid="calibration-worker">{calibration.worker_state}</dd>
+            </div>
+            <div>
+              <dt>Health</dt>
+              <dd>{calibration.health}</dd>
+            </div>
+            <div>
+              <dt>Stages</dt>
+              <dd data-testid="calibration-stages">
+                {calibration.stages.length > 0 ? calibration.stages.join(' → ') : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Frames submitted</dt>
+              <dd>{calibration.raw_frames_submitted}</dd>
+            </div>
+            <div>
+              <dt>Frames calibrated</dt>
+              <dd data-testid="calibration-success">{calibration.frames_calibrated}</dd>
+            </div>
+            <div>
+              <dt>Failures</dt>
+              <dd>{calibration.frames_failed}</dd>
+            </div>
+            <div>
+              <dt>Latest sequence</dt>
+              <dd>{calibration.latest_sequence ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Latest latency</dt>
+              <dd data-testid="calibration-latency">
+                {formatLatencyNs(calibration.last_duration_ns)}
+              </dd>
+            </div>
+            <div>
+              <dt>Average latency</dt>
+              <dd>{formatLatencyNs(calibration.average_duration_ns)}</dd>
+            </div>
+            {calibration.last_error ? (
+              <div>
+                <dt>Last error</dt>
+                <dd data-testid="calibration-error">{calibration.last_error}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : (
+          <p className="muted">Waiting for calibration snapshot…</p>
+        )}
+        <p className="muted" data-testid="calibration-source-note">
+          CSI Replay Development Source — baseline sanitization only. Not hardware calibration.
+        </p>
+      </section>
 
       <section className="panel" aria-labelledby="activity-heading">
         <h2 id="activity-heading">Live signal activity</h2>

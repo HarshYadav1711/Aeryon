@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use aeryon_csi_replay::{CsiReplayCompletion, CsiReplayStats};
 use aeryon_plugin_runtime::LifecycleState;
 
+use crate::calibration_stats::CalibrationStats;
 use crate::health::RuntimeHealth;
 
 /// Shared counters updated by the event consumer and plugin lifecycle.
@@ -23,6 +24,8 @@ pub struct RuntimeMetrics {
     csi_started_at: std::sync::Mutex<Option<Instant>>,
     /// Dedicated CSI replay statistics (shared with the replay plugin).
     csi_replay: Arc<CsiReplayStats>,
+    /// Dedicated calibration statistics (shared with the calibration worker).
+    calibration: Arc<CalibrationStats>,
 }
 
 impl Default for RuntimeMetrics {
@@ -45,6 +48,7 @@ impl RuntimeMetrics {
             started_at: std::sync::Mutex::new(None),
             csi_started_at: std::sync::Mutex::new(None),
             csi_replay: CsiReplayStats::new().shared(),
+            calibration: CalibrationStats::new().shared(),
         }
     }
 
@@ -56,6 +60,11 @@ impl RuntimeMetrics {
     /// Returns the shared CSI replay statistics handle.
     pub fn csi_replay(&self) -> &Arc<CsiReplayStats> {
         &self.csi_replay
+    }
+
+    /// Returns the shared calibration statistics handle.
+    pub fn calibration(&self) -> &Arc<CalibrationStats> {
+        &self.calibration
     }
 
     /// Records that the event consumer task is running.
@@ -141,6 +150,10 @@ impl RuntimeMetrics {
     ) -> RuntimeHealth {
         if !self.consumer_running() && (synthetic_enabled || csi_replay_enabled) {
             return RuntimeHealth::Failed;
+        }
+
+        if let Some(calibration_health) = self.calibration.evaluate_health() {
+            return calibration_health;
         }
 
         if synthetic_enabled {

@@ -10,5 +10,5 @@ pub mod plugin;
 pub mod stats;
 
 pub use config::{CsiReplayConfig, CsiReplayConfigError};
-pub use plugin::{CsiReplayPlugin, PLUGIN_ID, SENSOR_ID, SOURCE_ID};
+pub use plugin::{CsiFrameTx, CsiReplayPlugin, PLUGIN_ID, SENSOR_ID, SOURCE_ID};
 pub use stats::{CsiReplayCompletion, CsiReplayStats};

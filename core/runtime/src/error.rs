@@ -2,6 +2,7 @@
 
 use core::fmt;
 
+use aeryon_calibration::CalibrationError;
 use aeryon_csi_replay::CsiReplayConfigError;
 use aeryon_plugin_runtime::PluginError;
 use aeryon_synthetic_sensor::SyntheticConfigError;
@@ -19,6 +20,8 @@ pub enum ConfigError {
     Synthetic(SyntheticConfigError),
     /// CSI replay configuration failed validation.
     CsiReplay(CsiReplayConfigError),
+    /// Calibration configuration failed validation.
+    Calibration(CalibrationError),
     /// Synthetic and CSI replay sources cannot both be enabled.
     ConflictingSensorSources,
     /// API bind host is invalid.
@@ -93,6 +96,7 @@ impl fmt::Display for ConfigError {
             Self::Parse(error) => write!(f, "configuration parse error: {error}"),
             Self::Synthetic(error) => write!(f, "configuration validation error: {error}"),
             Self::CsiReplay(error) => write!(f, "configuration validation error: {error}"),
+            Self::Calibration(error) => write!(f, "configuration validation error: {error}"),
             Self::ConflictingSensorSources => f.write_str(
                 "synthetic_sensor and sensors.csi_replay cannot both be enabled; pick one active source",
             ),
@@ -141,6 +145,7 @@ impl std::error::Error for ConfigError {
             Self::Parse(error) => Some(error),
             Self::Synthetic(error) => Some(error),
             Self::CsiReplay(error) => Some(error),
+            Self::Calibration(error) => Some(error),
             Self::ConflictingSensorSources
             | Self::InvalidApiHost(_)
             | Self::InvalidApiPort(_)

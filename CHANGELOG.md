@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Milestone M3.2: configurable CSI calibration pipeline (`aeryon-calibration`) with baseline-csi-v1 stages (spatial phase unwrap, linear phase detrend, RMS amplitude normalize), runtime worker, `GET /api/v1/calibration`, WebSocket calibration metadata events, and dashboard calibration panel
+- Bounded CSI frame data path from replay → calibration (event bus remains metadata-only)
 - Milestone M3.1: canonical CSI frame (`aeryon-csi`), versioned development fixture format, CSI replay plugin, REST/WebSocket metadata, and dashboard source visibility
 - Checked-in synthetic CSI fixture under `datasets/fixtures/csi/` (not hardware-captured; not production recording format)
 - API endpoint `GET /api/v1/sensors/csi-replay` and CSI metadata WebSocket events

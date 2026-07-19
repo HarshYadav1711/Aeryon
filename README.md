@@ -97,7 +97,7 @@ scripts/             Build, CI, and maintenance scripts
 
 ## Current Status
 
-Milestone M3.1 is implemented: a canonical WiFi CSI frame model, versioned development fixture format, CSI replay sensor plugin, REST/WebSocket metadata, and dashboard source visibility. Replay data is deterministic fixture content — not live RF sensing. Perception algorithms, DSP, calibration, and hardware capture are not implemented. See [ROADMAP.md](ROADMAP.md).
+Milestone M3.2 is implemented: configurable CSI calibration (`baseline-csi-v1`) applies ordered deterministic stages (spatial phase unwrap → linear phase detrend → RMS amplitude normalize) to replay frames, publishes calibrated-frame metadata events, and exposes runtime/API/dashboard state. Calibration is development sanitization — not hardware-specific RF calibration and not perception inference. Milestone M3.1 CSI replay remains the development source. See [ROADMAP.md](ROADMAP.md).
 
 ## Development
 
@@ -128,9 +128,14 @@ path = "datasets/fixtures/csi/synthetic_dev_v1.ndjson"
 loop_playback = false
 frame_interval_ms = 100
 maximum_frames = 0
+
+[calibration]
+enabled = true
+profile = "baseline-csi-v1"
+queue_capacity = 64
 ```
 
-Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled.
+Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled. Calibration applies ordered baseline stages (spatial phase unwrap, linear phase detrend, RMS normalize) to CSI replay frames. It is deterministic development sanitization — not hardware calibration. Set `calibration.enabled = false` to keep raw replay without calibrated events.
 
 Terminal 2 — start the Vite frontend:
 
@@ -141,7 +146,7 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. Values come from the running Rust server. CSI replay is labeled as development fixture data, not live WiFi CSI.
+Open `http://127.0.0.1:5173`. Values come from the running Rust server. CSI replay and calibration are labeled as development fixture processing, not live WiFi CSI or hardware-calibrated RF.
 
 ### API summary (local development)
 
@@ -154,6 +159,7 @@ Configured in `[api]` of `config/aeryon.toml` (default `127.0.0.1:8080`). The AP
 | `GET /api/v1/plugins` | Registered plugin summaries |
 | `GET /api/v1/sensors/synthetic` | Synthetic sensor snapshot |
 | `GET /api/v1/sensors/csi-replay` | CSI fixture replay snapshot |
+| `GET /api/v1/calibration` | CSI calibration worker snapshot |
 | `GET /api/v1/events/ws` | WebSocket stream of typed event metadata |
 
 Development CSI fixtures live under `datasets/fixtures/csi/` (see that directory’s README). The format is **Aeryon CSI Fixture Format v1** and is not the production recording format.

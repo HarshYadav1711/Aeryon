@@ -105,6 +105,26 @@ export interface CsiReplaySnapshot {
   last_error?: string | null
 }
 
+export interface CalibrationSnapshot {
+  enabled: boolean
+  worker_state: string
+  profile_id: string | null
+  profile_version: number | null
+  stages: string[]
+  raw_frames_submitted: number
+  frames_calibrated: number
+  frames_failed: number
+  latest_sequence: number | null
+  latest_calibrated_timestamp: string | null
+  last_duration_ns: number | null
+  average_duration_ns: number | null
+  last_warning?: string | null
+  last_error?: string | null
+  queue_depth: number
+  health: string
+  data_classification: string
+}
+
 export interface ApiEventEnvelope {
   version: number
   type: string

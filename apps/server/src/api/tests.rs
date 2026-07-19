@@ -309,6 +309,11 @@ fn csi_replay_config(path: &str) -> AppConfig {
         loop_playback = false
         frame_interval_ms = 15
         maximum_frames = 6
+
+        [calibration]
+        enabled = true
+        profile = "baseline-csi-v1"
+        queue_capacity = 32
         "#
     ))
     .expect("valid csi config")
@@ -344,8 +349,9 @@ async fn csi_replay_end_to_end_events_stats_and_endpoint() {
     runtime.start().expect("start");
 
     let mut sequences = Vec::new();
+    let mut calibrated = 0_u32;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
-    while sequences.len() < 3 && tokio::time::Instant::now() < deadline {
+    while (sequences.len() < 3 || calibrated < 3) && tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(500), receiver.recv()).await {
             Ok(Ok(Event::CsiFrameReceived(frame))) => {
                 assert_eq!(frame.receive_antennas, 2);
@@ -353,6 +359,11 @@ async fn csi_replay_end_to_end_events_stats_and_endpoint() {
                 assert_eq!(frame.subcarrier_count, 3);
                 assert_eq!(frame.source.as_str(), "csi_replay");
                 sequences.push(frame.sequence);
+            }
+            Ok(Ok(Event::CsiFrameCalibrated(event))) => {
+                assert_eq!(event.profile_id, "baseline-csi-v1");
+                assert_eq!(event.source.as_str(), "csi_replay");
+                calibrated += 1;
             }
             Ok(Ok(_)) => {}
             _ => break,
@@ -363,9 +374,14 @@ async fn csi_replay_end_to_end_events_stats_and_endpoint() {
         sequences.len() >= 3,
         "expected at least 3 CSI frames, got {sequences:?}"
     );
+    assert!(
+        calibrated >= 3,
+        "expected at least 3 calibrated frames, got {calibrated}"
+    );
     assert!(sequences.windows(2).all(|pair| pair[1] == pair[0] + 1));
     assert!(runtime.metrics().frames_received() >= 3);
     assert!(runtime.metrics().csi_replay().frames_accepted() >= 3);
+    assert!(runtime.metrics().calibration().frames_calibrated() >= 3);
 
     let state = test_state(runtime);
     let (status, body) = json_get(state.clone(), "/api/v1/sensors/csi-replay").await;
@@ -382,6 +398,19 @@ async fn csi_replay_end_to_end_events_stats_and_endpoint() {
     assert_eq!(body["subcarrier_count"], 3);
     assert!(body["latest_sequence"].as_u64().is_some());
     assert!(body["fixture_path"].as_str().is_some());
+
+    let (cal_status, cal_body) = json_get(state.clone(), "/api/v1/calibration").await;
+    assert_eq!(cal_status, StatusCode::OK);
+    assert_eq!(cal_body["enabled"], true);
+    assert_eq!(cal_body["profile_id"], "baseline-csi-v1");
+    assert_eq!(cal_body["profile_version"], 1);
+    assert!(cal_body["frames_calibrated"].as_u64().unwrap_or(0) >= 3);
+    assert!(cal_body["raw_frames_submitted"].as_u64().unwrap_or(0) >= 3);
+    assert!(cal_body["stages"].as_array().is_some_and(|s| s.len() == 3));
+    assert_eq!(
+        cal_body["data_classification"],
+        "csi_replay_development_source"
+    );
 
     let (runtime_status, runtime_body) = json_get(state.clone(), "/api/v1/runtime").await;
     assert_eq!(runtime_status, StatusCode::OK);

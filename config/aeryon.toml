@@ -38,3 +38,20 @@ path = "datasets/fixtures/csi/synthetic_dev_v1.ndjson"
 loop_playback = false
 frame_interval_ms = 100
 maximum_frames = 0
+
+# Baseline CSI calibration (spatial unwrap → affine phase detrend → RMS normalize).
+# Deterministic development sanitization — not hardware-specific calibration.
+[calibration]
+enabled = true
+profile = "baseline-csi-v1"
+queue_capacity = 64
+
+[calibration.baseline_csi_v1.phase_unwrap]
+enabled = true
+
+[calibration.baseline_csi_v1.linear_phase_detrend]
+enabled = true
+
+[calibration.baseline_csi_v1.rms_amplitude_normalize]
+enabled = true
+epsilon = 1.0e-8

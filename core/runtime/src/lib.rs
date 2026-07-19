@@ -5,6 +5,8 @@
 
 #![deny(missing_docs)]
 
+pub mod calibration_service;
+pub mod calibration_stats;
 pub mod config;
 pub mod context;
 pub mod error;
@@ -13,6 +15,7 @@ pub mod logging;
 pub mod metrics;
 pub mod runtime;
 
+pub use calibration_stats::{CalibrationStats, CalibrationWorkerState};
 pub use config::{
     ApiConfig, AppConfig, ApplicationConfig, DEFAULT_CONFIG, LoggingConfig, PluginsConfig,
     RuntimeSettings, SensorsConfig,

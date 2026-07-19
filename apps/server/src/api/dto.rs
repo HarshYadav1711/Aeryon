@@ -297,3 +297,111 @@ pub struct CsiReplayLifecyclePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frames_accepted: Option<u64>,
 }
+
+/// `GET /api/v1/calibration` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CalibrationSnapshot {
+    /// Whether calibration is enabled in configuration.
+    pub enabled: bool,
+    /// Calibration worker state label.
+    pub worker_state: String,
+    /// Active profile identity when configured.
+    pub profile_id: Option<String>,
+    /// Active profile version when configured.
+    pub profile_version: Option<u32>,
+    /// Ordered enabled stage names.
+    pub stages: Vec<String>,
+    /// Raw frames submitted to the calibration worker.
+    pub raw_frames_submitted: u64,
+    /// Successfully calibrated frames.
+    pub frames_calibrated: u64,
+    /// Calibration failures.
+    pub frames_failed: u64,
+    /// Latest calibrated sequence, if any.
+    pub latest_sequence: Option<u64>,
+    /// Latest calibrated timestamp (RFC 3339), if any.
+    pub latest_calibrated_timestamp: Option<String>,
+    /// Last calibration duration in nanoseconds.
+    pub last_duration_ns: Option<u64>,
+    /// Average calibration duration in nanoseconds.
+    pub average_duration_ns: Option<u64>,
+    /// Last warning summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_warning: Option<String>,
+    /// Last error summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    /// Approximate queue depth when tracked.
+    pub queue_depth: u64,
+    /// Calibration health label derived from worker/failure state.
+    pub health: String,
+    /// Data source honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Calibration started event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CalibrationStartedPayload {
+    /// Profile identity.
+    pub profile_id: String,
+    /// Profile version.
+    pub profile_version: u32,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Successful CSI frame calibration metadata payload (no sample matrices).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CsiFrameCalibratedPayload {
+    /// Raw frame identifier.
+    pub raw_frame_id: u64,
+    /// Sensor identifier.
+    pub sensor_id: u64,
+    /// Sequence number.
+    pub sequence: u64,
+    /// Profile identity.
+    pub profile_id: String,
+    /// Profile version.
+    pub profile_version: u32,
+    /// Executed stage count.
+    pub stage_count: u16,
+    /// Calibration duration in nanoseconds.
+    pub calibration_duration_ns: u64,
+    /// Receive antenna count.
+    pub receive_antennas: u16,
+    /// Transmit antenna count.
+    pub transmit_antennas: u16,
+    /// Subcarrier count.
+    pub subcarrier_count: u16,
+    /// Source type marker.
+    pub source_type: &'static str,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Calibration failure event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CalibrationFailedPayload {
+    /// Typed error code.
+    pub code: String,
+    /// Concise operator-safe message.
+    pub message: String,
+    /// Raw frame identifier when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_frame_id: Option<u64>,
+    /// Sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u64>,
+    /// Failed stage label when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_stage: Option<String>,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Calibration service stopped payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CalibrationServiceStoppedPayload {
+    /// Honesty label.
+    pub data_classification: &'static str,
+}

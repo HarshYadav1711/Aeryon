@@ -4,7 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Sensor correction and normalization"
+description = "Configurable CSI calibration pipeline for Aeryon"
+rust-version.workspace = true
+
+[dependencies]
+aeryon-csi = { path = "../csi" }
+aeryon-domain = { path = "../domain" }
+num-complex = "0.4"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tracing = "0.1"
 
 [lints]
 workspace = true

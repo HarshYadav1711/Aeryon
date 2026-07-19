@@ -4,6 +4,7 @@ import { ApiClientError, apiClient } from '../api/client'
 import { EventStream } from '../api/eventStream'
 import type {
   ApiEventEnvelope,
+  CalibrationSnapshot,
   ConnectionState,
   CsiReplaySnapshot,
   RuntimeSnapshot,
@@ -18,6 +19,7 @@ export type DashboardState = {
   runtime: RuntimeSnapshot | null
   sensor: SyntheticSensorSnapshot | null
   csiReplay: CsiReplaySnapshot | null
+  calibration: CalibrationSnapshot | null
   events: ApiEventEnvelope[]
   framesReceived: number
   latestSequence: number | null
@@ -32,6 +34,7 @@ function emptyState(): DashboardState {
     runtime: null,
     sensor: null,
     csiReplay: null,
+    calibration: null,
     events: [],
     framesReceived: 0,
     latestSequence: null,
@@ -52,16 +55,18 @@ export function useDashboard(): DashboardState {
 
   const refreshRest = useCallback(async () => {
     try {
-      const [runtime, sensor, csiReplay] = await Promise.all([
+      const [runtime, sensor, csiReplay, calibration] = await Promise.all([
         apiClient.getRuntime(),
         apiClient.getSyntheticSensor(),
         apiClient.getCsiReplay(),
+        apiClient.getCalibration(),
       ])
       setState((prev) => ({
         ...prev,
         runtime,
         sensor,
         csiReplay,
+        calibration,
         restError: null,
         framesReceived: Math.max(prev.framesReceived, runtime.frames_received),
         latestSequence: runtime.last_frame_sequence ?? prev.latestSequence,
@@ -98,10 +103,11 @@ export function useDashboard(): DashboardState {
 
     const bootstrap = async () => {
       try {
-        const [runtime, sensor, csiReplay] = await Promise.all([
+        const [runtime, sensor, csiReplay, calibration] = await Promise.all([
           apiClient.getRuntime(),
           apiClient.getSyntheticSensor(),
           apiClient.getCsiReplay(),
+          apiClient.getCalibration(),
         ])
         if (cancelled) {
           return
@@ -111,6 +117,7 @@ export function useDashboard(): DashboardState {
           runtime,
           sensor,
           csiReplay,
+          calibration,
           framesReceived: runtime.frames_received,
           latestSequence: runtime.last_frame_sequence,
           latestFrameTimestamp: runtime.last_frame_timestamp,

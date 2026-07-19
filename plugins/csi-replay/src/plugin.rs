@@ -14,11 +14,17 @@ use aeryon_plugin_runtime::{
     Capability, HealthStatus, LifecycleError, LifecycleState, Plugin, PluginError, PluginId,
     Version,
 };
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::config::CsiReplayConfig;
 use crate::stats::{CsiReplayCompletion, CsiReplayStats};
+
+/// Bounded data-path sender for full canonical CSI frames.
+///
+/// The typed event bus carries metadata only. Calibration (and future stages)
+/// consume frames from this channel so subscribers cannot silently miss matrices.
+pub type CsiFrameTx = mpsc::Sender<Arc<CsiFrame>>;
 
 /// Stable plugin identifier.
 pub const PLUGIN_ID: &str = "aeryon.csi-replay";
@@ -38,6 +44,7 @@ pub struct CsiReplayPlugin {
     config: CsiReplayConfig,
     bus: EventBus,
     stats: Arc<CsiReplayStats>,
+    frame_tx: Option<CsiFrameTx>,
     cancel_tx: Option<watch::Sender<bool>>,
     task: Option<JoinHandle<()>>,
     producer_alive: Arc<AtomicBool>,
@@ -52,11 +59,25 @@ impl CsiReplayPlugin {
 
     /// Creates a CSI replay plugin that updates the provided shared statistics.
     pub fn with_stats(config: CsiReplayConfig, bus: EventBus, stats: Arc<CsiReplayStats>) -> Self {
+        Self::with_stats_and_frame_tx(config, bus, stats, None)
+    }
+
+    /// Creates a CSI replay plugin with an optional bounded frame data-path sink.
+    ///
+    /// When `frame_tx` is set, each accepted frame is sent as [`Arc<CsiFrame>`]
+    /// without dropping under backpressure (`send` awaits capacity).
+    pub fn with_stats_and_frame_tx(
+        config: CsiReplayConfig,
+        bus: EventBus,
+        stats: Arc<CsiReplayStats>,
+        frame_tx: Option<CsiFrameTx>,
+    ) -> Self {
         Self {
             id: PluginId::new(PLUGIN_ID),
             config,
             bus,
             stats,
+            frame_tx,
             cancel_tx: None,
             task: None,
             producer_alive: Arc::new(AtomicBool::new(false)),
@@ -136,6 +157,7 @@ impl Plugin for CsiReplayPlugin {
         let bus = self.bus.clone();
         let config = self.config.clone();
         let stats = Arc::clone(&self.stats);
+        let frame_tx = self.frame_tx.take();
         let producer_alive = Arc::clone(&self.producer_alive);
         let failed = Arc::clone(&self.failed);
         let plugin_id = self.id.clone();
@@ -216,6 +238,7 @@ impl Plugin for CsiReplayPlugin {
                     };
 
                     let receive_timestamp = CsiReplayPlugin::now();
+                    let frame = Arc::new(frame);
                     if !publish_frame(&bus, &frame, receive_timestamp) {
                         failed.store(true, Ordering::Relaxed);
                         stats.set_completion(CsiReplayCompletion::Failed);
@@ -226,6 +249,21 @@ impl Plugin for CsiReplayPlugin {
                             kind: CsiReplayFailureKind::PublishFailed,
                         }));
                         break 'outer;
+                    }
+
+                    if let Some(tx) = frame_tx.as_ref() {
+                        // Data path: await capacity so frames are never silently dropped.
+                        if tx.send(Arc::clone(&frame)).await.is_err() {
+                            failed.store(true, Ordering::Relaxed);
+                            stats.set_completion(CsiReplayCompletion::Failed);
+                            stats.set_last_error("CSI frame data-path channel closed unexpectedly");
+                            let _ = bus.publish(Event::CsiReplayFailed(CsiReplayFailed {
+                                sensor_id: SENSOR_ID,
+                                timestamp: CsiReplayPlugin::now(),
+                                kind: CsiReplayFailureKind::PublishFailed,
+                            }));
+                            break 'outer;
+                        }
                     }
 
                     stats.record_accepted(
@@ -258,6 +296,9 @@ impl Plugin for CsiReplayPlugin {
                     }
                 }
             }
+
+            // Drop the data-path sender so the calibration worker observes EOF.
+            drop(frame_tx);
 
             producer_alive.store(false, Ordering::Relaxed);
             let cancelled = *cancel_rx.borrow();
@@ -364,7 +405,7 @@ fn publish_frame(bus: &EventBus, frame: &CsiFrame, receive_timestamp: Timestamp)
         center_frequency_hz: frame.center_frequency_hz(),
         bandwidth_hz: frame.bandwidth_hz(),
         source: CsiDataSource::Replay,
-        // Keep the full matrix off the bus; retain only a lightweight token.
+        // Event path: metadata only. Full matrices use the bounded data-path channel.
         frame_token: Some(Arc::new(())),
     });
     bus.publish(event).is_ok()

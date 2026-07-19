@@ -5,6 +5,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::str::FromStr;
 
+use aeryon_calibration::CalibrationConfig;
 use aeryon_csi_replay::CsiReplayConfig;
 use aeryon_synthetic_sensor::SyntheticSensorConfig;
 use serde::Deserialize;
@@ -49,6 +50,21 @@ path = "datasets/fixtures/csi/synthetic_dev_v1.ndjson"
 loop_playback = false
 frame_interval_ms = 100
 maximum_frames = 0
+
+[calibration]
+enabled = true
+profile = "baseline-csi-v1"
+queue_capacity = 64
+
+[calibration.baseline_csi_v1.phase_unwrap]
+enabled = true
+
+[calibration.baseline_csi_v1.linear_phase_detrend]
+enabled = true
+
+[calibration.baseline_csi_v1.rms_amplitude_normalize]
+enabled = true
+epsilon = 1.0e-8
 "#;
 
 /// Top-level application configuration.
@@ -71,6 +87,9 @@ pub struct AppConfig {
     /// Sensor plugin configuration group.
     #[serde(default)]
     pub sensors: SensorsConfig,
+    /// CSI calibration configuration.
+    #[serde(default)]
+    pub calibration: CalibrationConfig,
 }
 
 /// Nested sensor plugin configuration sections.
@@ -276,6 +295,9 @@ impl AppConfig {
             .csi_replay
             .validate()
             .map_err(ConfigError::CsiReplay)?;
+        self.calibration
+            .validate()
+            .map_err(ConfigError::Calibration)?;
         if self.synthetic_sensor.enabled && self.sensors.csi_replay.enabled {
             return Err(ConfigError::ConflictingSensorSources);
         }
