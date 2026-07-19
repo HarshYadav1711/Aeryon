@@ -5,10 +5,14 @@ use serde_json::json;
 
 use super::dto::{
     ApiEventEnvelope, CalibrationFailedPayload, CalibrationServiceStoppedPayload,
-    CalibrationStartedPayload, CsiFrameCalibratedPayload, CsiFramePayload,
-    CsiReplayLifecyclePayload, CsiWindowAssembledPayload, DspProcessingFailedPayload,
-    DspServiceIdlePayload, DspServiceStartedPayload, DspServiceStoppedPayload,
-    DspWindowProcessedPayload, SensorFramePayload, SensorLifecyclePayload,
+    CalibrationStartedPayload, ChannelChangeObservedPayload, CsiFrameCalibratedPayload,
+    CsiFramePayload, CsiReplayLifecyclePayload, CsiWindowAssembledPayload,
+    DspProcessingFailedPayload, DspServiceIdlePayload, DspServiceStartedPayload,
+    DspServiceStoppedPayload, DspWindowProcessedPayload, FeatureExtractionFailedPayload,
+    FeatureServiceIdlePayload, FeatureServiceStartedPayload, FeatureServiceStoppedPayload,
+    FeatureVectorProducedPayload, ObservationFailedPayload, PerceptionServiceIdlePayload,
+    PerceptionServiceStartedPayload, PerceptionServiceStoppedPayload, SensorFramePayload,
+    SensorLifecyclePayload,
 };
 use super::time::{nanos_to_rfc3339, now_rfc3339};
 
@@ -271,6 +275,153 @@ pub fn domain_event_to_envelope(
             event_type: "dsp_service_stopped".to_owned(),
             timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
             payload: serde_json::to_value(DspServiceStoppedPayload {
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::FeatureServiceStarted(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "feature_service_started".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(FeatureServiceStartedPayload {
+                profile_id: event.profile_id,
+                profile_version: event.profile_version,
+                schema_id: event.schema_id,
+                schema_version: event.schema_version,
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::FeatureVectorProduced(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "feature_vector_produced".to_owned(),
+            timestamp: nanos_to_rfc3339(event.extracted_at.as_nanos()),
+            payload: serde_json::to_value(FeatureVectorProducedPayload {
+                feature_vector_id: event.feature_vector_id,
+                sensor_id: event.sensor_id.value(),
+                window_id: event.window_id,
+                first_sequence: event.first_sequence,
+                last_sequence: event.last_sequence,
+                schema_id: event.schema_id,
+                schema_version: event.schema_version,
+                profile_id: event.profile_id,
+                profile_version: event.profile_version,
+                feature_count: event.feature_count,
+                link_count: event.link_count,
+                processing_duration_ns: event.processing_duration_ns,
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::FeatureExtractionFailed(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "feature_extraction_failed".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(FeatureExtractionFailedPayload {
+                code: event.code.as_str().to_owned(),
+                message: event.message,
+                window_id: event.window_id,
+                sensor_id: event.sensor_id.map(|id| id.value()),
+                first_sequence: event.first_sequence,
+                last_sequence: event.last_sequence,
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::FeatureServiceIdle(event) => {
+            let event_type = if event.completed {
+                "feature_service_completed"
+            } else {
+                "feature_service_idle"
+            };
+            Some(ApiEventEnvelope {
+                version: 1,
+                event_type: event_type.to_owned(),
+                timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+                payload: serde_json::to_value(FeatureServiceIdlePayload {
+                    completed: event.completed,
+                    data_classification: PIPELINE_DATA_CLASSIFICATION,
+                })
+                .unwrap_or_else(|_| json!({})),
+            })
+        }
+        Event::FeatureServiceStopped(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "feature_service_stopped".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(FeatureServiceStoppedPayload {
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::PerceptionServiceStarted(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "perception_service_started".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(PerceptionServiceStartedPayload {
+                profile_id: event.profile_id,
+                profile_version: event.profile_version,
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::ChannelChangeObserved(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "channel_change_observed".to_owned(),
+            timestamp: nanos_to_rfc3339(event.created_at.as_nanos()),
+            payload: serde_json::to_value(ChannelChangeObservedPayload {
+                observation_id: event.observation_id,
+                sensor_id: event.sensor_id.value(),
+                feature_vector_id: event.feature_vector_id,
+                first_sequence: event.first_sequence,
+                last_sequence: event.last_sequence,
+                state: event.state,
+                activity_score: event.activity_score,
+                threshold_margin: event.threshold_margin,
+                profile_id: event.profile_id,
+                profile_version: event.profile_version,
+                warning_count: event.warning_count,
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::ObservationFailed(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "observation_failed".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(ObservationFailedPayload {
+                code: event.code.as_str().to_owned(),
+                message: event.message,
+                feature_vector_id: event.feature_vector_id,
+                sensor_id: event.sensor_id.map(|id| id.value()),
+                first_sequence: event.first_sequence,
+                last_sequence: event.last_sequence,
+                data_classification: PIPELINE_DATA_CLASSIFICATION,
+            })
+            .unwrap_or_else(|_| json!({})),
+        }),
+        Event::PerceptionServiceIdle(event) => {
+            let event_type = if event.completed {
+                "perception_service_completed"
+            } else {
+                "perception_service_idle"
+            };
+            Some(ApiEventEnvelope {
+                version: 1,
+                event_type: event_type.to_owned(),
+                timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+                payload: serde_json::to_value(PerceptionServiceIdlePayload {
+                    completed: event.completed,
+                    data_classification: PIPELINE_DATA_CLASSIFICATION,
+                })
+                .unwrap_or_else(|_| json!({})),
+            })
+        }
+        Event::PerceptionServiceStopped(event) => Some(ApiEventEnvelope {
+            version: 1,
+            event_type: "perception_service_stopped".to_owned(),
+            timestamp: nanos_to_rfc3339(event.timestamp.as_nanos()),
+            payload: serde_json::to_value(PerceptionServiceStoppedPayload {
                 data_classification: PIPELINE_DATA_CLASSIFICATION,
             })
             .unwrap_or_else(|_| json!({})),

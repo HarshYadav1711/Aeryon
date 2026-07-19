@@ -20,11 +20,14 @@ pub mod world;
 pub use entity::{Entity, EntityKind};
 pub use event::{
     CalibrationFailed, CalibrationFailureCode, CalibrationServiceStopped, CalibrationStarted,
-    CsiDataSource, CsiFrameCalibrated, CsiFrameReceived, CsiReplayCompleted, CsiReplayFailed,
-    CsiReplayFailureKind, CsiReplayStarted, CsiReplayStopped, CsiWindowAssembled, DspFailureCode,
-    DspProcessingFailed, DspServiceIdle, DspServiceStarted, DspServiceStopped, DspWindowProcessed,
-    EntityRemoved, EntityUpserted, Event, EventPublisher, EventSubscriber, FrameReceived,
-    ObservationRecorded, RelationshipUpserted, SensorFailed, SensorFailureKind, SensorStarted,
+    ChannelChangeObserved, CsiDataSource, CsiFrameCalibrated, CsiFrameReceived, CsiReplayCompleted,
+    CsiReplayFailed, CsiReplayFailureKind, CsiReplayStarted, CsiReplayStopped, CsiWindowAssembled,
+    DspFailureCode, DspProcessingFailed, DspServiceIdle, DspServiceStarted, DspServiceStopped,
+    DspWindowProcessed, EntityRemoved, EntityUpserted, Event, EventPublisher, EventSubscriber,
+    FeatureExtractionFailed, FeatureFailureCode, FeatureServiceIdle, FeatureServiceStarted,
+    FeatureServiceStopped, FeatureVectorProduced, FrameReceived, ObservationFailed,
+    ObservationFailureCode, ObservationRecorded, PerceptionServiceIdle, PerceptionServiceStarted,
+    PerceptionServiceStopped, RelationshipUpserted, SensorFailed, SensorFailureKind, SensorStarted,
     SensorStopped, StageCompleted, WorldSnapshotCommitted,
 };
 pub use frame::{Frame, FrameMetadata, Metadata, MetadataKey, MetadataValue};

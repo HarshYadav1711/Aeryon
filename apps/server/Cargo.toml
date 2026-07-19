@@ -15,6 +15,8 @@ aeryon-calibration = { path = "../../core/calibration" }
 aeryon-csi = { path = "../../core/csi" }
 aeryon-domain = { path = "../../core/domain" }
 aeryon-dsp = { path = "../../core/dsp" }
+aeryon-features = { path = "../../core/features" }
+aeryon-perception = { path = "../../core/perception" }
 aeryon-events = { path = "../../core/events" }
 aeryon-plugin-runtime = { path = "../../core/plugin-runtime" }
 aeryon-runtime = { path = "../../core/runtime" }

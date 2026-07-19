@@ -97,6 +97,17 @@ dependencies = [
 [[package]]
 name = "aeryon-features"
 version = "0.1.0"
+dependencies = [
+ "aeryon-calibration",
+ "aeryon-csi",
+ "aeryon-domain",
+ "aeryon-dsp",
+ "aeryon-events",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "aeryon-inference"
@@ -105,6 +116,15 @@ version = "0.1.0"
 [[package]]
 name = "aeryon-perception"
 version = "0.1.0"
+dependencies = [
+ "aeryon-domain",
+ "aeryon-events",
+ "aeryon-features",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
 
 [[package]]
 name = "aeryon-plugin-runtime"
@@ -124,6 +144,8 @@ dependencies = [
  "aeryon-domain",
  "aeryon-dsp",
  "aeryon-events",
+ "aeryon-features",
+ "aeryon-perception",
  "aeryon-plugin-runtime",
  "aeryon-synthetic-sensor",
  "serde",
@@ -144,6 +166,8 @@ dependencies = [
  "aeryon-domain",
  "aeryon-dsp",
  "aeryon-events",
+ "aeryon-features",
+ "aeryon-perception",
  "aeryon-plugin-runtime",
  "aeryon-runtime",
  "aeryon-synthetic-sensor",

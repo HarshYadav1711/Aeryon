@@ -68,3 +68,25 @@ window_size_frames = 16
 hop_size_frames = 4
 maximum_sequence_gap = 1
 timestamp_jitter_tolerance = 0.10
+
+# Deterministic CSI channel feature extraction (csi-channel-features-v1).
+# Descriptors only — not presence, occupancy, or activity labels.
+[features]
+enabled = true
+profile = "baseline-features-v1"
+queue_capacity = 64
+
+# Heuristic channel-change observation (channel-change-v1).
+# Thresholds are development baselines from the synthetic fixture — not learned models.
+[perception]
+enabled = true
+profile = "channel-change-v1"
+queue_capacity = 64
+
+[perception.channel_change_v1]
+stable_threshold = 0.22
+high_change_threshold = 0.55
+motion_energy_rms_scale = 0.35
+motion_energy_p95_scale = 0.55
+minimum_margin = 0.0
+maximum_timestamp_jitter = 0.10

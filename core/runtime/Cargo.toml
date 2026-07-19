@@ -14,6 +14,8 @@ aeryon-plugin-runtime = { path = "../plugin-runtime" }
 aeryon-calibration = { path = "../calibration" }
 aeryon-csi = { path = "../csi" }
 aeryon-dsp = { path = "../dsp" }
+aeryon-features = { path = "../features" }
+aeryon-perception = { path = "../perception" }
 aeryon-synthetic-sensor = { path = "../../plugins/synthetic-sensor" }
 aeryon-csi-replay = { path = "../../plugins/csi-replay" }
 serde = { version = "1", features = ["derive"] }

@@ -5,6 +5,8 @@ use core::fmt;
 use aeryon_calibration::CalibrationError;
 use aeryon_csi_replay::CsiReplayConfigError;
 use aeryon_dsp::DspError;
+use aeryon_features::FeatureError;
+use aeryon_perception::PerceptionError;
 use aeryon_plugin_runtime::PluginError;
 use aeryon_synthetic_sensor::SyntheticConfigError;
 
@@ -25,8 +27,16 @@ pub enum ConfigError {
     Calibration(CalibrationError),
     /// DSP configuration failed validation.
     Dsp(DspError),
+    /// Feature extraction configuration failed validation.
+    Features(FeatureError),
+    /// Perception configuration failed validation.
+    Perception(PerceptionError),
     /// DSP requires calibration to be enabled.
     DspRequiresCalibration,
+    /// Feature extraction requires DSP to be enabled.
+    FeaturesRequireDsp,
+    /// Perception requires feature extraction to be enabled.
+    PerceptionRequiresFeatures,
     /// Synthetic and CSI replay sources cannot both be enabled.
     ConflictingSensorSources,
     /// API bind host is invalid.
@@ -103,8 +113,16 @@ impl fmt::Display for ConfigError {
             Self::CsiReplay(error) => write!(f, "configuration validation error: {error}"),
             Self::Calibration(error) => write!(f, "configuration validation error: {error}"),
             Self::Dsp(error) => write!(f, "configuration validation error: {error}"),
+            Self::Features(error) => write!(f, "configuration validation error: {error}"),
+            Self::Perception(error) => write!(f, "configuration validation error: {error}"),
             Self::DspRequiresCalibration => {
                 f.write_str("dsp.enabled requires calibration.enabled = true")
+            }
+            Self::FeaturesRequireDsp => {
+                f.write_str("features.enabled requires dsp.enabled = true")
+            }
+            Self::PerceptionRequiresFeatures => {
+                f.write_str("perception.enabled requires features.enabled = true")
             }
             Self::ConflictingSensorSources => f.write_str(
                 "synthetic_sensor and sensors.csi_replay cannot both be enabled; pick one active source",
@@ -156,7 +174,11 @@ impl std::error::Error for ConfigError {
             Self::CsiReplay(error) => Some(error),
             Self::Calibration(error) => Some(error),
             Self::Dsp(error) => Some(error),
+            Self::Features(error) => Some(error),
+            Self::Perception(error) => Some(error),
             Self::DspRequiresCalibration
+            | Self::FeaturesRequireDsp
+            | Self::PerceptionRequiresFeatures
             | Self::ConflictingSensorSources
             | Self::InvalidApiHost(_)
             | Self::InvalidApiPort(_)

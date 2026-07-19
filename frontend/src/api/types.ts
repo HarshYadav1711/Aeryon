@@ -215,6 +215,165 @@ export interface DspLatestResponse {
   data_classification?: string | null
 }
 
+export interface FeatureProfileSummary {
+  id: string | null
+  version: number | null
+}
+
+export interface FeatureSchemaSummary {
+  id: string | null
+  version: number | null
+  description?: string | null
+  feature_count: number
+}
+
+export interface FeatureSnapshot {
+  enabled: boolean
+  profile: FeatureProfileSummary
+  schema: FeatureSchemaSummary
+  worker_state: string
+  health: string
+  dsp_results_received: number
+  feature_vectors_produced: number
+  feature_failures: number
+  latest_feature_vector_id: number | null
+  latest_first_sequence: number | null
+  latest_last_sequence: number | null
+  last_duration_ns: number | null
+  average_duration_ns: number | null
+  last_warning?: string | null
+  last_error?: string | null
+  data_classification: string
+}
+
+export interface FeatureValueEntry {
+  id: string
+  value: number
+  unit: string
+  description: string
+}
+
+export interface LinkFeaturesCompact {
+  rx: number
+  tx: number
+  ordered_values: number[]
+}
+
+export interface FeatureLatest {
+  available: boolean
+  feature_vector_id?: number | null
+  sensor_id?: number | null
+  window_id?: number | null
+  first_sequence?: number | null
+  last_sequence?: number | null
+  first_capture_timestamp?: string | null
+  last_capture_timestamp?: string | null
+  extracted_at?: string | null
+  feature_schema_id?: string | null
+  feature_schema_version?: number | null
+  feature_profile_id?: string | null
+  feature_profile_version?: number | null
+  dsp_profile_id?: string | null
+  dsp_profile_version?: number | null
+  dsp_backend_id?: string | null
+  dsp_backend_version?: string | null
+  dsp_backend_abi_version?: number | null
+  calibration_profile_id?: string | null
+  calibration_profile_version?: number | null
+  ordered_values?: number[] | null
+  features?: FeatureValueEntry[] | null
+  link_features?: LinkFeaturesCompact[] | null
+  processing_duration_ns?: number | null
+  warnings?: string[] | null
+  semantics_label?: string | null
+  data_classification?: string | null
+}
+
+export interface PerceptionProfileSummary {
+  id: string | null
+  version: number | null
+}
+
+export interface PerceptionSnapshot {
+  enabled: boolean
+  profile: PerceptionProfileSummary
+  worker_state: string
+  health: string
+  feature_vectors_received: number
+  observations_produced: number
+  observation_failures: number
+  latest_observation_id: number | null
+  latest_observation_state: string | null
+  latest_activity_score: number | null
+  last_duration_ns: number | null
+  average_duration_ns: number | null
+  last_warning?: string | null
+  last_error?: string | null
+  data_classification: string
+}
+
+export interface ObservationFeatureEvidenceEntry {
+  feature_id: string
+  value: number
+  normalized_contribution?: number | null
+}
+
+export interface ObservationEvidenceDto {
+  features: ObservationFeatureEvidenceEntry[]
+  activity_score: number
+  stable_threshold: number
+  high_change_threshold: number
+  threshold_margin: number
+  data_quality_warnings: string[]
+}
+
+export interface ObservationUncertaintyDto {
+  threshold_margin: number
+  normalized_threshold_margin: number
+  timestamp_jitter: number
+  warning_count: number
+  supporting_frame_count: number
+  valid_antenna_links: number
+  reliability_score: number
+  reliability_provenance: string
+}
+
+export interface ObservationProvenanceDto {
+  threshold_profile_id: string
+  threshold_profile_version: number
+  feature_schema_id: string
+  feature_schema_version: number
+  feature_profile_id: string
+  feature_profile_version: number
+  dsp_profile_id: string
+  dsp_profile_version: number
+  dsp_backend_id: string
+  dsp_backend_version: string
+}
+
+export interface ObservationLatest {
+  available: boolean
+  type?: 'channel_change' | null
+  observation_id?: number | null
+  sensor_id?: number | null
+  feature_vector_id?: number | null
+  window_id?: number | null
+  first_sequence?: number | null
+  last_sequence?: number | null
+  first_capture_timestamp?: string | null
+  last_capture_timestamp?: string | null
+  created_at?: string | null
+  state?: string | null
+  activity_score?: number | null
+  score_semantics?: string | null
+  disclaimer?: string | null
+  evidence?: ObservationEvidenceDto | null
+  uncertainty?: ObservationUncertaintyDto | null
+  provenance?: ObservationProvenanceDto | null
+  warnings?: string[] | null
+  data_classification?: string | null
+}
+
 export interface RecentEventsResponse {
   events: ApiEventEnvelope[]
 }
@@ -233,6 +392,89 @@ export interface SensorFramePayload {
   capture_timestamp: string
   samples_per_frame: number
   source_type: string
+}
+
+export interface FeatureServiceStartedPayload {
+  profile_id: string
+  profile_version: number
+  schema_id: string
+  schema_version: number
+  data_classification: string
+}
+
+export interface FeatureVectorProducedPayload {
+  feature_vector_id: number
+  sensor_id: number
+  window_id: number
+  first_sequence: number
+  last_sequence: number
+  schema_id: string
+  schema_version: number
+  profile_id: string
+  profile_version: number
+  feature_count: number
+  link_count: number
+  processing_duration_ns: number
+  data_classification: string
+}
+
+export interface FeatureExtractionFailedPayload {
+  code: string
+  message: string
+  window_id?: number | null
+  sensor_id?: number | null
+  first_sequence?: number | null
+  last_sequence?: number | null
+  data_classification: string
+}
+
+export interface FeatureServiceIdlePayload {
+  completed: boolean
+  data_classification: string
+}
+
+export interface FeatureServiceStoppedPayload {
+  data_classification: string
+}
+
+export interface PerceptionServiceStartedPayload {
+  profile_id: string
+  profile_version: number
+  data_classification: string
+}
+
+export interface ChannelChangeObservedPayload {
+  observation_id: number
+  sensor_id: number
+  feature_vector_id: number
+  first_sequence: number
+  last_sequence: number
+  state: string
+  activity_score: number
+  threshold_margin: number
+  profile_id: string
+  profile_version: number
+  warning_count: number
+  data_classification: string
+}
+
+export interface ObservationFailedPayload {
+  code: string
+  message: string
+  feature_vector_id?: number | null
+  sensor_id?: number | null
+  first_sequence?: number | null
+  last_sequence?: number | null
+  data_classification: string
+}
+
+export interface PerceptionServiceIdlePayload {
+  completed: boolean
+  data_classification: string
+}
+
+export interface PerceptionServiceStoppedPayload {
+  data_classification: string
 }
 
 export type ConnectionState =

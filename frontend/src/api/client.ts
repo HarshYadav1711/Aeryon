@@ -3,7 +3,11 @@ import type {
   CsiReplaySnapshot,
   DspLatestResponse,
   DspSnapshot,
+  FeatureLatest,
+  FeatureSnapshot,
   HealthResponse,
+  ObservationLatest,
+  PerceptionSnapshot,
   PluginsResponse,
   RecentEventsResponse,
   RuntimeSnapshot,
@@ -111,6 +115,18 @@ export const apiClient = {
   },
   getDspLatest(params?: LinkParams): Promise<DspLatestResponse> {
     return getJson<DspLatestResponse>(`/api/v1/dsp/latest${linkQuery(params)}`)
+  },
+  getFeatures(): Promise<FeatureSnapshot> {
+    return getJson<FeatureSnapshot>('/api/v1/features')
+  },
+  getFeaturesLatest(): Promise<FeatureLatest> {
+    return getJson<FeatureLatest>('/api/v1/features/latest')
+  },
+  getPerception(): Promise<PerceptionSnapshot> {
+    return getJson<PerceptionSnapshot>('/api/v1/perception')
+  },
+  getObservationLatest(): Promise<ObservationLatest> {
+    return getJson<ObservationLatest>('/api/v1/observations/latest')
   },
   getRecentEvents(limit = 50): Promise<RecentEventsResponse> {
     return getJson<RecentEventsResponse>(`/api/v1/events/recent?limit=${limit}`)

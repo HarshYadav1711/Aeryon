@@ -216,6 +216,40 @@ body {
   font-size: 0.85rem;
 }
 
+.observation-disclaimer {
+  margin: 0 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-left: 3px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.feature-semantics {
+  margin-bottom: 0.75rem;
+}
+
+.feature-table-details {
+  margin: 0.75rem 0;
+}
+
+.feature-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.feature-table th,
+.feature-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.feature-provenance {
+  margin-top: 0.75rem;
+}
+
 .pipeline-stage[data-state='active'] .pipeline-state {
   color: var(--accent);
   font-weight: 600;

@@ -720,6 +720,425 @@ impl DspLatestResponse {
     }
 }
 
+/// Embedded feature schema summary for status endpoints.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureSchemaSummary {
+    /// Schema identity when configured.
+    pub id: Option<String>,
+    /// Schema version when configured.
+    pub version: Option<u32>,
+    /// Human-readable schema description when resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Number of ordered features in the schema.
+    pub feature_count: usize,
+}
+
+/// Embedded feature profile summary for status endpoints.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureProfileSummary {
+    /// Profile identity when configured.
+    pub id: Option<String>,
+    /// Profile version when configured.
+    pub version: Option<u32>,
+}
+
+/// `GET /api/v1/features` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeaturesSnapshot {
+    /// Whether feature extraction is enabled in configuration.
+    pub enabled: bool,
+    /// Active profile summary.
+    pub profile: FeatureProfileSummary,
+    /// Active schema summary.
+    pub schema: FeatureSchemaSummary,
+    /// Feature worker lifecycle label.
+    pub worker_state: String,
+    /// Operator-facing health derived from worker state.
+    pub health: String,
+    /// DSP results received by the feature worker.
+    pub dsp_results_received: u64,
+    /// Successfully produced feature vectors.
+    pub feature_vectors_produced: u64,
+    /// Feature extraction failures.
+    pub feature_failures: u64,
+    /// Latest feature-vector identity, if any.
+    pub latest_feature_vector_id: Option<u64>,
+    /// Inclusive first sequence of the latest vector, if any.
+    pub latest_first_sequence: Option<u64>,
+    /// Inclusive last sequence of the latest vector, if any.
+    pub latest_last_sequence: Option<u64>,
+    /// Last extraction duration in nanoseconds.
+    pub last_duration_ns: Option<u64>,
+    /// Average extraction duration in nanoseconds.
+    pub average_duration_ns: Option<u64>,
+    /// Last warning summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_warning: Option<String>,
+    /// Last error summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    /// Data source honesty label.
+    pub data_classification: &'static str,
+}
+
+/// One ordered feature value with schema metadata.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureValueEntry {
+    /// Stable snake_case feature identity.
+    pub id: String,
+    /// Numerical value.
+    pub value: f64,
+    /// Unit or semantic unit label.
+    pub unit: String,
+    /// Concise semantic description (not an activity label).
+    pub description: String,
+}
+
+/// Compact per-link feature values aligned with the schema order.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LinkFeaturesCompact {
+    /// Receive antenna index.
+    pub rx: u16,
+    /// Transmit antenna index.
+    pub tx: u16,
+    /// Ordered numerical values matching the schema layout.
+    pub ordered_values: Vec<f64>,
+}
+
+/// `GET /api/v1/features/latest` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeaturesLatestResponse {
+    /// Whether a feature vector snapshot is available.
+    pub available: bool,
+    /// Feature-vector identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature_vector_id: Option<u64>,
+    /// Source sensor identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor_id: Option<u64>,
+    /// Source DSP window identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<u64>,
+    /// Inclusive first sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_sequence: Option<u64>,
+    /// First capture timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_capture_timestamp: Option<String>,
+    /// Last capture timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_capture_timestamp: Option<String>,
+    /// Extraction completion timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extracted_at: Option<String>,
+    /// Feature schema identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature_schema_id: Option<String>,
+    /// Feature schema version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature_schema_version: Option<u32>,
+    /// Feature profile identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature_profile_id: Option<String>,
+    /// Feature profile version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature_profile_version: Option<u32>,
+    /// DSP profile identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsp_profile_id: Option<String>,
+    /// DSP profile version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsp_profile_version: Option<u32>,
+    /// DSP backend identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsp_backend_id: Option<String>,
+    /// DSP backend implementation version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsp_backend_version: Option<String>,
+    /// Native ABI version when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dsp_backend_abi_version: Option<u32>,
+    /// Calibration profile identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration_profile_id: Option<String>,
+    /// Calibration profile version.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration_profile_version: Option<u32>,
+    /// Ordered aggregate numerical values (schema layout).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ordered_values: Option<Vec<f64>>,
+    /// Ordered feature entries with units and descriptions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub features: Option<Vec<FeatureValueEntry>>,
+    /// Per-link compact feature values.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_features: Option<Vec<LinkFeaturesCompact>>,
+    /// Processing duration in nanoseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing_duration_ns: Option<u64>,
+    /// Non-fatal warnings from extraction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<String>>,
+    /// Honesty label for aggregate features.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semantics_label: Option<&'static str>,
+    /// Data honesty label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_classification: Option<&'static str>,
+}
+
+impl FeaturesLatestResponse {
+    /// Honest empty response before the first feature vector arrives.
+    pub fn unavailable() -> Self {
+        Self {
+            available: false,
+            feature_vector_id: None,
+            sensor_id: None,
+            window_id: None,
+            first_sequence: None,
+            last_sequence: None,
+            first_capture_timestamp: None,
+            last_capture_timestamp: None,
+            extracted_at: None,
+            feature_schema_id: None,
+            feature_schema_version: None,
+            feature_profile_id: None,
+            feature_profile_version: None,
+            dsp_profile_id: None,
+            dsp_profile_version: None,
+            dsp_backend_id: None,
+            dsp_backend_version: None,
+            dsp_backend_abi_version: None,
+            calibration_profile_id: None,
+            calibration_profile_version: None,
+            ordered_values: None,
+            features: None,
+            link_features: None,
+            processing_duration_ns: None,
+            warnings: None,
+            semantics_label: None,
+            data_classification: None,
+        }
+    }
+}
+
+/// Embedded observation profile summary for status endpoints.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PerceptionProfileSummary {
+    /// Profile identity when configured.
+    pub id: Option<String>,
+    /// Profile version when configured.
+    pub version: Option<u32>,
+}
+
+/// `GET /api/v1/perception` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PerceptionSnapshot {
+    /// Whether perception is enabled in configuration.
+    pub enabled: bool,
+    /// Active observation profile summary.
+    pub profile: PerceptionProfileSummary,
+    /// Perception worker lifecycle label.
+    pub worker_state: String,
+    /// Operator-facing health derived from worker state.
+    pub health: String,
+    /// Feature vectors received by the perception worker.
+    pub feature_vectors_received: u64,
+    /// Successfully produced observations.
+    pub observations_produced: u64,
+    /// Observation creation failures.
+    pub observation_failures: u64,
+    /// Latest observation identity, if any.
+    pub latest_observation_id: Option<u64>,
+    /// Latest observation state label, if any.
+    pub latest_observation_state: Option<String>,
+    /// Latest heuristic activity score, if any.
+    pub latest_activity_score: Option<f64>,
+    /// Last observation duration in nanoseconds.
+    pub last_duration_ns: Option<u64>,
+    /// Average observation duration in nanoseconds.
+    pub average_duration_ns: Option<u64>,
+    /// Last warning summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_warning: Option<String>,
+    /// Last error summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    /// Data source honesty label.
+    pub data_classification: &'static str,
+}
+
+/// One feature contribution retained as observation evidence.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ObservationFeatureEvidenceEntry {
+    /// Feature identity.
+    pub feature_id: String,
+    /// Raw feature value.
+    pub value: f64,
+    /// Normalized contribution when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized_contribution: Option<f64>,
+}
+
+/// Structured evidence for a channel-change observation.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ObservationEvidenceDto {
+    /// Features consulted by the score.
+    pub features: Vec<ObservationFeatureEvidenceEntry>,
+    /// Resulting heuristic activity score.
+    pub activity_score: f64,
+    /// Stable-state threshold.
+    pub stable_threshold: f64,
+    /// Highly-changing threshold.
+    pub high_change_threshold: f64,
+    /// Distance from the nearest threshold.
+    pub threshold_margin: f64,
+    /// Data-quality warnings considered.
+    pub data_quality_warnings: Vec<String>,
+}
+
+/// Uncertainty / reliability metadata (not a probability).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ObservationUncertaintyDto {
+    /// Distance from the nearest classification threshold.
+    pub threshold_margin: f64,
+    /// Threshold margin normalized by the Stable↔HighlyChanging span.
+    pub normalized_threshold_margin: f64,
+    /// Capture-time timestamp jitter from the feature vector.
+    pub timestamp_jitter: f64,
+    /// Number of warnings retained on the observation.
+    pub warning_count: u32,
+    /// Supporting frame count from the source window.
+    pub supporting_frame_count: u32,
+    /// Number of valid antenna links.
+    pub valid_antenna_links: u32,
+    /// Conservative heuristic reliability in `[0, 1]` (not a probability).
+    pub reliability_score: f64,
+    /// Explicit provenance for the reliability heuristic.
+    pub reliability_provenance: String,
+}
+
+/// Provenance bundle for an observation.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ObservationProvenanceDto {
+    /// Threshold profile identity.
+    pub threshold_profile_id: String,
+    /// Threshold profile version.
+    pub threshold_profile_version: u32,
+    /// Feature schema identity.
+    pub feature_schema_id: String,
+    /// Feature schema version.
+    pub feature_schema_version: u32,
+    /// Feature profile identity.
+    pub feature_profile_id: String,
+    /// Feature profile version.
+    pub feature_profile_version: u32,
+    /// DSP profile identity.
+    pub dsp_profile_id: String,
+    /// DSP profile version.
+    pub dsp_profile_version: u32,
+    /// DSP backend identity.
+    pub dsp_backend_id: String,
+    /// DSP backend implementation version.
+    pub dsp_backend_version: String,
+}
+
+/// `GET /api/v1/observations/latest` response.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ObservationLatestResponse {
+    /// Whether a channel-change observation snapshot is available.
+    pub available: bool,
+    /// Observation type discriminator when available.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub observation_type: Option<&'static str>,
+    /// Observation identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation_id: Option<u64>,
+    /// Source sensor identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor_id: Option<u64>,
+    /// Source feature-vector identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature_vector_id: Option<u64>,
+    /// Source DSP window identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<u64>,
+    /// Inclusive first sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_sequence: Option<u64>,
+    /// First capture timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_capture_timestamp: Option<String>,
+    /// Last capture timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_capture_timestamp: Option<String>,
+    /// Creation timestamp (RFC 3339).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    /// Channel-change state label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    /// Heuristic channel-change activity score (not a probability).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_score: Option<f64>,
+    /// Explicit score semantics label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score_semantics: Option<String>,
+    /// Operator-facing honesty disclaimer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disclaimer: Option<&'static str>,
+    /// Structured evidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<ObservationEvidenceDto>,
+    /// Uncertainty / reliability metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uncertainty: Option<ObservationUncertaintyDto>,
+    /// Provenance bundle.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<ObservationProvenanceDto>,
+    /// Non-fatal warnings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<String>>,
+    /// Data honesty label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_classification: Option<&'static str>,
+}
+
+impl ObservationLatestResponse {
+    /// Honest empty response before the first channel-change observation arrives.
+    pub fn unavailable() -> Self {
+        Self {
+            available: false,
+            observation_type: None,
+            observation_id: None,
+            sensor_id: None,
+            feature_vector_id: None,
+            window_id: None,
+            first_sequence: None,
+            last_sequence: None,
+            first_capture_timestamp: None,
+            last_capture_timestamp: None,
+            created_at: None,
+            state: None,
+            activity_score: None,
+            score_semantics: None,
+            disclaimer: None,
+            evidence: None,
+            uncertainty: None,
+            provenance: None,
+            warnings: None,
+            data_classification: None,
+        }
+    }
+}
+
 /// `GET /api/v1/events/recent` response.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RecentEventsResponse {
@@ -831,6 +1250,170 @@ pub struct DspServiceIdlePayload {
 /// DSP service stopped event payload.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DspServiceStoppedPayload {
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Feature service started event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureServiceStartedPayload {
+    /// Active feature profile identity.
+    pub profile_id: String,
+    /// Active feature profile version.
+    pub profile_version: u32,
+    /// Active feature schema identity.
+    pub schema_id: String,
+    /// Active feature schema version.
+    pub schema_version: u32,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Feature vector produced metadata payload (no numerical arrays).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureVectorProducedPayload {
+    /// Feature-vector identity.
+    pub feature_vector_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: u64,
+    /// Source DSP window identity.
+    pub window_id: u64,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Feature schema identity.
+    pub schema_id: String,
+    /// Feature schema version.
+    pub schema_version: u32,
+    /// Feature profile identity.
+    pub profile_id: String,
+    /// Feature profile version.
+    pub profile_version: u32,
+    /// Number of aggregate features.
+    pub feature_count: u32,
+    /// Number of antenna links.
+    pub link_count: u32,
+    /// Processing duration in nanoseconds.
+    pub processing_duration_ns: u64,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Feature extraction failed event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureExtractionFailedPayload {
+    /// Typed error code.
+    pub code: String,
+    /// Concise operator-safe message.
+    pub message: String,
+    /// Window identity when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<u64>,
+    /// Sensor identity when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor_id: Option<u64>,
+    /// Inclusive first sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_sequence: Option<u64>,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Feature service idle / completed event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureServiceIdlePayload {
+    /// Whether finite input completed cleanly.
+    pub completed: bool,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Feature service stopped event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeatureServiceStoppedPayload {
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Perception service started event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PerceptionServiceStartedPayload {
+    /// Active observation profile identity.
+    pub profile_id: String,
+    /// Active observation profile version.
+    pub profile_version: u32,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Channel-change observation metadata payload (no evidence arrays).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChannelChangeObservedPayload {
+    /// Observation identity.
+    pub observation_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: u64,
+    /// Source feature-vector identity.
+    pub feature_vector_id: u64,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Channel-change state label.
+    pub state: String,
+    /// Heuristic activity score (not a probability).
+    pub activity_score: f64,
+    /// Distance from the nearest classification threshold.
+    pub threshold_margin: f64,
+    /// Observation profile identity.
+    pub profile_id: String,
+    /// Observation profile version.
+    pub profile_version: u32,
+    /// Warning count retained on the observation.
+    pub warning_count: u32,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Observation creation failed event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ObservationFailedPayload {
+    /// Typed error code.
+    pub code: String,
+    /// Concise operator-safe message.
+    pub message: String,
+    /// Feature-vector identity when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feature_vector_id: Option<u64>,
+    /// Sensor identity when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensor_id: Option<u64>,
+    /// Inclusive first sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_sequence: Option<u64>,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Perception service idle / completed event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PerceptionServiceIdlePayload {
+    /// Whether finite input completed cleanly.
+    pub completed: bool,
+    /// Honesty label.
+    pub data_classification: &'static str,
+}
+
+/// Perception service stopped event payload.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PerceptionServiceStoppedPayload {
     /// Honesty label.
     pub data_classification: &'static str,
 }

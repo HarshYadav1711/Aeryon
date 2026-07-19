@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Milestone M4.1: CSI feature extraction and channel-change observation — `csi-channel-features-v1` / `baseline-features-v1`, immutable `FeatureVector`, deterministic `ChannelChangeObservation` (`channel-change-v1`), feature and perception workers with stats/health, snapshot store slots, REST/WebSocket metadata, Signal Observatory feature and observation panels, and ADR 0002
+- API endpoints `GET /api/v1/features`, `GET /api/v1/features/latest`, `GET /api/v1/perception`, `GET /api/v1/observations/latest`
 - Milestone M3.4: native DSP backend and benchmark parity — optional C++ kernels behind `cpp-dsp`, typed Rust/C++ backend selection (`backend = "rust"|"cpp"`), FFI-safe C ABI wrappers, Rust↔C++ conformance tests, Criterion backend benches, and ADR 0001 (Rust/C++ FFI strategy)
 - Milestone M3.3: temporal CSI windowing and Signal Observatory — `baseline-dsp-v1` motion-energy proxy + Hann/FFT spectra, DSP worker and stats, signal snapshot store, recent event history, REST/WebSocket DSP surfaces, and dashboard charts over deterministic fixture data
 - API endpoints `GET /api/v1/dsp`, `GET /api/v1/signal/latest`, `GET /api/v1/dsp/latest`, `GET /api/v1/events/recent`

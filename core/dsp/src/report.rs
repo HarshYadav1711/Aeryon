@@ -87,6 +87,8 @@ pub fn process_window(
         spectra,
         dsp_profile_id: profile.id.clone(),
         dsp_profile_version: profile.version,
+        calibration_profile_id: window.calibration_profile_id().to_owned(),
+        calibration_profile_version: window.calibration_profile_version(),
         backend_id: identity.kind.as_str().to_owned(),
         backend_version: identity.implementation_version.clone(),
         backend_abi_version: identity.abi_version,

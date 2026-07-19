@@ -24,3 +24,4 @@ Status: proposed | accepted | deprecated | superseded
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](0001-rust-cpp-ffi-strategy.md) | Rust/C++ FFI strategy for DSP kernels | accepted |
+| [0002](0002-versioned-csi-feature-schema.md) | Versioned CSI channel feature schema | accepted |

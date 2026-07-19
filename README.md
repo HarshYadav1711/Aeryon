@@ -97,7 +97,7 @@ scripts/             Build, CI, and maintenance scripts
 
 ## Current Status
 
-Milestone M3.4 adds an optional native DSP path: Rust remains the scientifically authoritative reference; C++ kernels are optional behind the `cpp-dsp` Cargo feature and `[dsp] backend = "rust"|"cpp"`. Parity is tested; performance claims require local benchmarks (FFI overhead may dominate small inputs). Milestone M3.3 remains: temporal CSI windowing and baseline spectral DSP (`baseline-dsp-v1`) assemble calibrated frames into windows, compute a motion-energy channel-change proxy, and produce Hann-windowed one-sided power spectra. Capture-timestamp intervals define frequency bins (not replay wall-clock speed). Motion energy is not human-motion classification; spectral peaks are not activity labels. Milestones M3.1–M3.2 remain intact. See [ROADMAP.md](ROADMAP.md).
+Milestone M4.1 adds versioned CSI feature extraction (`csi-channel-features-v1`) and a deterministic channel-change observation (`channel-change-v1`). Features are signal descriptors from DSP motion-energy and spectra; the observation score is a documented heuristic, not a probability, and does not claim human presence or activity. Milestone M3.4 remains: optional native DSP path with Rust as the scientifically authoritative reference and C++ kernels behind `cpp-dsp`. Milestones M3.1–M3.3 remain intact. See [ROADMAP.md](ROADMAP.md).
 
 ## Development
 
@@ -143,9 +143,27 @@ window_size_frames = 16
 hop_size_frames = 4
 maximum_sequence_gap = 1
 timestamp_jitter_tolerance = 0.10
+
+[features]
+enabled = true
+profile = "baseline-features-v1"
+queue_capacity = 64
+
+[perception]
+enabled = true
+profile = "channel-change-v1"
+queue_capacity = 64
+
+[perception.channel_change_v1]
+stable_threshold = 0.22
+high_change_threshold = 0.55
+motion_energy_rms_scale = 0.35
+motion_energy_p95_scale = 0.55
+minimum_margin = 0.0
+maximum_timestamp_jitter = 0.10
 ```
 
-Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled. DSP requires calibration. Motion energy is a CSI channel-change proxy; spectra use capture timestamps and are not activity classification. Charts use deterministic replay fixture data. Set `dsp.enabled = false` to keep replay + calibration without DSP results. A build without `cpp-dsp` that sets `backend = "cpp"` fails configuration clearly (no silent Rust fallback).
+Only one of `synthetic_sensor` or `sensors.csi_replay` may be enabled. DSP requires calibration. Features require DSP; perception requires features. Features are deterministic signal descriptors (`csi-channel-features-v1`). The channel-change score is a heuristic over motion-energy RMS and p95 — not a probability, not presence detection, and not activity recognition. Thresholds are development baselines. Motion energy remains a CSI channel-change proxy; spectra use capture timestamps. Charts use deterministic replay fixture data. Set `perception.enabled = false` to keep features without observations; set `features.enabled = false` while perception is enabled to fail configuration clearly. A build without `cpp-dsp` that sets `backend = "cpp"` fails configuration clearly (no silent Rust fallback).
 
 Terminal 2 — start the Vite frontend:
 
@@ -173,6 +191,10 @@ Configured in `[api]` of `config/aeryon.toml` (default `127.0.0.1:8080`). The AP
 | `GET /api/v1/dsp` | DSP worker status snapshot |
 | `GET /api/v1/signal/latest` | Latest raw/calibrated link amplitudes and phases |
 | `GET /api/v1/dsp/latest` | Latest motion-energy and power-spectrum result |
+| `GET /api/v1/features` | Feature extraction worker status snapshot |
+| `GET /api/v1/features/latest` | Latest versioned feature vector with units/descriptions |
+| `GET /api/v1/perception` | Perception worker status snapshot |
+| `GET /api/v1/observations/latest` | Latest channel-change observation (not presence/activity) |
 | `GET /api/v1/events/recent` | Bounded recent event metadata history |
 | `GET /api/v1/events/ws` | WebSocket stream of typed event metadata |
 
@@ -187,8 +209,10 @@ Frontend env (`frontend/.env.example`):
 
 - Motion energy measures channel change between consecutive calibrated frames; it is not occupancy or human-motion classification.
 - Spectral peaks are not interpreted as walking, breathing, or other activities in this milestone.
+- Feature vectors (`csi-channel-features-v1`) are deterministic signal descriptors. They are suitable for later ML inputs, but this milestone does not run models.
+- Channel-change observations report Stable / Changing / Highly changing / Indeterminate from a heuristic score. The score is not a probability and does not identify humans or activities.
 - Frequency axes are derived from fixture capture timestamps, not browser arrival time or replay delay.
-- Pure Rust (`rustfft`) is the reference DSP implementation; optional C++ kernels must match within conformance tolerances.
+- Pure Rust (`rustfft`) is the reference DSP implementation; optional C++ kernels must preserve feature and observation semantics within conformance tolerances.
 
 ### DSP backends and FFI
 

@@ -8,6 +8,8 @@ use aeryon_csi_replay::{CsiReplayPlugin, PLUGIN_ID as CSI_REPLAY_PLUGIN_ID};
 use aeryon_domain::Event;
 use aeryon_dsp::{DspService, DspWorkerState};
 use aeryon_events::EventBus;
+use aeryon_features::{FeatureService, FeatureWorkerState};
+use aeryon_perception::{PerceptionService, PerceptionWorkerState};
 use aeryon_plugin_runtime::{LifecycleState, PluginId, PluginRuntime};
 use aeryon_synthetic_sensor::{PLUGIN_ID as SYNTHETIC_PLUGIN_ID, SyntheticSensorPlugin};
 use tokio::task::JoinHandle;
@@ -29,6 +31,8 @@ pub struct Runtime {
     consumer_task: Option<JoinHandle<()>>,
     calibration_service: Option<CalibrationService>,
     dsp_service: Option<DspService>,
+    feature_service: Option<FeatureService>,
+    perception_service: Option<PerceptionService>,
 }
 
 impl Runtime {
@@ -72,6 +76,8 @@ impl Runtime {
             consumer_task: None,
             calibration_service: None,
             dsp_service: None,
+            feature_service: None,
+            perception_service: None,
         })
     }
 
@@ -156,6 +162,47 @@ impl Runtime {
             },
         );
 
+        // Configure feature stats for API visibility even when disabled.
+        if self.context.config.features.enabled {
+            if let Ok(profile) = self.context.config.features.resolve_profile() {
+                if let Ok(schema) = profile.schema() {
+                    self.context.metrics.features().configure(
+                        true,
+                        Some(&profile.id),
+                        profile.version,
+                        Some(&schema.id),
+                        schema.version,
+                    );
+                }
+            }
+        } else {
+            self.context
+                .metrics
+                .features()
+                .configure(false, None, 0, None, 0);
+            self.context
+                .metrics
+                .features()
+                .set_worker_state(FeatureWorkerState::Disabled);
+        }
+
+        // Configure perception stats for API visibility even when disabled.
+        if self.context.config.perception.enabled {
+            if let Ok(profile) = self.context.config.perception.resolve_profile() {
+                self.context.metrics.perception().configure(
+                    true,
+                    Some(&profile.id),
+                    profile.version,
+                );
+            }
+        } else {
+            self.context.metrics.perception().configure(false, None, 0);
+            self.context
+                .metrics
+                .perception()
+                .set_worker_state(PerceptionWorkerState::Disabled);
+        }
+
         if self.context.config.plugins.enabled {
             if self.context.config.synthetic_sensor.enabled {
                 self.start_synthetic_sensor()?;
@@ -220,6 +267,22 @@ impl Runtime {
                 .metrics
                 .dsp()
                 .set_worker_state(DspWorkerState::Stopped);
+        }
+
+        if let Some(mut service) = self.feature_service.take() {
+            service.shutdown();
+            self.context
+                .metrics
+                .features()
+                .set_worker_state(FeatureWorkerState::Stopped);
+        }
+
+        if let Some(mut service) = self.perception_service.take() {
+            service.shutdown();
+            self.context
+                .metrics
+                .perception()
+                .set_worker_state(PerceptionWorkerState::Stopped);
         }
 
         if let Some(mut service) = self.calibration_service.take() {
@@ -530,6 +593,57 @@ impl Runtime {
     fn start_csi_replay(&mut self) -> Result<(), RuntimeError> {
         let mut frame_tx = None;
         let mut calibrated_tx = None;
+        let mut feature_forward_tx = None;
+        let mut perception_tx = None;
+
+        if self.context.config.perception.enabled {
+            let profile = self
+                .context
+                .config
+                .perception
+                .resolve_profile()
+                .map_err(crate::error::ConfigError::Perception)?;
+            let mut service = PerceptionService::start(
+                self.context.event_bus.clone(),
+                self.context.config.perception.clone(),
+                profile,
+                Arc::clone(self.context.metrics.perception()),
+                Some(Arc::clone(&self.context.signal_store)
+                    as Arc<dyn aeryon_perception::ObservationSink>),
+            )
+            .map_err(crate::error::ConfigError::Perception)?;
+            perception_tx = service.take_feature_tx();
+            self.perception_service = Some(service);
+            tracing::info!(
+                profile = %self.context.config.perception.profile,
+                "perception service started"
+            );
+        }
+
+        if self.context.config.features.enabled {
+            let profile = self
+                .context
+                .config
+                .features
+                .resolve_profile()
+                .map_err(crate::error::ConfigError::Features)?;
+            let mut service = FeatureService::start(
+                self.context.event_bus.clone(),
+                self.context.config.features.clone(),
+                profile,
+                Arc::clone(self.context.metrics.features()),
+                Some(Arc::clone(&self.context.signal_store)
+                    as Arc<dyn aeryon_features::FeatureVectorSink>),
+                perception_tx,
+            )
+            .map_err(crate::error::ConfigError::Features)?;
+            feature_forward_tx = service.take_result_tx();
+            self.feature_service = Some(service);
+            tracing::info!(
+                profile = %self.context.config.features.profile,
+                "feature service started"
+            );
+        }
 
         if self.context.config.dsp.enabled {
             let profile = self
@@ -544,6 +658,7 @@ impl Runtime {
                 profile,
                 Arc::clone(self.context.metrics.dsp()),
                 Some(Arc::clone(&self.context.signal_store) as Arc<dyn aeryon_dsp::DspResultSink>),
+                feature_forward_tx,
             )
             .map_err(crate::error::ConfigError::Dsp)?;
             calibrated_tx = service.take_frame_tx();
@@ -602,6 +717,12 @@ impl Runtime {
             }
             Err(error) => {
                 if let Some(mut service) = self.dsp_service.take() {
+                    service.shutdown();
+                }
+                if let Some(mut service) = self.feature_service.take() {
+                    service.shutdown();
+                }
+                if let Some(mut service) = self.perception_service.take() {
                     service.shutdown();
                 }
                 if let Some(mut service) = self.calibration_service.take() {
@@ -713,6 +834,70 @@ mod tests {
             "#
         ))
         .expect("valid csi config")
+    }
+
+    fn features_perception_test_config(path: &str) -> AppConfig {
+        AppConfig::from_toml(&format!(
+            r#"
+            [application]
+            name = "aeryon"
+            environment = "development"
+
+            [logging]
+            level = "error"
+
+            [plugins]
+            enabled = true
+            autoload = false
+
+            [runtime]
+            shutdown_timeout_secs = 10
+            first_frame_timeout_ms = 2000
+
+            [synthetic_sensor]
+            enabled = false
+
+            [sensors.csi_replay]
+            enabled = true
+            path = "{path}"
+            loop_playback = false
+            frame_interval_ms = 10
+            maximum_frames = 12
+
+            [calibration]
+            enabled = true
+            profile = "baseline-csi-v1"
+            queue_capacity = 64
+
+            [dsp]
+            enabled = true
+            profile = "baseline-dsp-v1"
+            queue_capacity = 64
+            window_size_frames = 8
+            hop_size_frames = 4
+            maximum_sequence_gap = 1
+            timestamp_jitter_tolerance = 0.10
+
+            [features]
+            enabled = true
+            profile = "baseline-features-v1"
+            queue_capacity = 64
+
+            [perception]
+            enabled = true
+            profile = "channel-change-v1"
+            queue_capacity = 64
+
+            [perception.channel_change_v1]
+            stable_threshold = 0.22
+            high_change_threshold = 0.55
+            motion_energy_rms_scale = 0.35
+            motion_energy_p95_scale = 0.55
+            minimum_margin = 0.0
+            maximum_timestamp_jitter = 0.10
+            "#
+        ))
+        .expect("valid features/perception config")
     }
 
     fn write_csi_fixture() -> NamedTempFile {
@@ -1026,6 +1211,106 @@ mod tests {
                 .lifecycle_state(&PluginId::new(CSI_REPLAY_PLUGIN_ID)),
             Some(LifecycleState::Stopped)
         );
+    }
+
+    #[tokio::test]
+    async fn features_and_perception_end_to_end_with_csi_pipeline() {
+        use aeryon_features::{CSI_CHANNEL_FEATURES_V1_ID, FeatureWorkerState};
+        use aeryon_perception::PerceptionWorkerState;
+
+        let fixture = write_csi_fixture();
+        let path = fixture.path().to_string_lossy().replace('\\', "/");
+        let mut runtime = Runtime::boot(features_perception_test_config(&path)).expect("boot");
+        let mut receiver = runtime.context().event_bus.subscribe();
+        runtime.start().expect("start");
+
+        let mut feature_events = 0_u32;
+        let mut observation_events = 0_u32;
+        let mut features_idle = false;
+        let mut perception_idle = false;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+
+        while tokio::time::Instant::now() < deadline {
+            match timeout(Duration::from_millis(500), receiver.recv()).await {
+                Ok(Ok(Event::FeatureVectorProduced(event))) => {
+                    assert_eq!(event.schema_id, CSI_CHANNEL_FEATURES_V1_ID);
+                    assert!(event.feature_count > 0);
+                    feature_events += 1;
+                }
+                Ok(Ok(Event::ChannelChangeObserved(event))) => {
+                    assert!(event.activity_score.is_finite());
+                    assert!((0.0..=1.0).contains(&event.activity_score));
+                    assert!(matches!(
+                        event.state.as_str(),
+                        "stable" | "changing" | "highly_changing" | "indeterminate"
+                    ));
+                    observation_events += 1;
+                }
+                Ok(Ok(Event::FeatureServiceIdle(event))) => {
+                    assert!(event.completed);
+                    features_idle = true;
+                }
+                Ok(Ok(Event::PerceptionServiceIdle(event))) => {
+                    assert!(event.completed);
+                    perception_idle = true;
+                }
+                Ok(Ok(_)) => {}
+                _ => {
+                    if feature_events > 0
+                        && observation_events > 0
+                        && features_idle
+                        && perception_idle
+                    {
+                        break;
+                    }
+                }
+            }
+            if feature_events > 0 && observation_events > 0 && features_idle && perception_idle {
+                break;
+            }
+        }
+
+        assert!(feature_events >= 1, "expected FeatureVectorProduced");
+        assert!(observation_events >= 1, "expected ChannelChangeObserved");
+        assert!(runtime.metrics().features().feature_vectors_produced() >= 1);
+        assert!(runtime.metrics().perception().observations_produced() >= 1);
+
+        let vector = runtime
+            .signal_store()
+            .latest_features()
+            .expect("latest feature vector");
+        assert_eq!(vector.feature_schema_id, CSI_CHANNEL_FEATURES_V1_ID);
+        assert_eq!(vector.feature_count(), vector.values().len());
+        assert!(vector.values().iter().all(|value| value.is_finite()));
+
+        let observation = runtime
+            .signal_store()
+            .latest_observation()
+            .expect("latest observation");
+        assert!((0.0..=1.0).contains(&observation.activity_score));
+        assert!(!observation.score_semantics.contains("probability"));
+
+        timeout(Duration::from_secs(2), async {
+            loop {
+                let feature_done = matches!(
+                    runtime.metrics().features().worker_state(),
+                    FeatureWorkerState::Completed | FeatureWorkerState::Idle
+                );
+                let perception_done = matches!(
+                    runtime.metrics().perception().worker_state(),
+                    PerceptionWorkerState::Completed | PerceptionWorkerState::Idle
+                );
+                if feature_done && perception_done {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("features/perception completion");
+
+        runtime.shutdown().expect("shutdown");
+        assert!(!runtime.metrics().consumer_running());
     }
 
     #[cfg(feature = "cpp-dsp")]

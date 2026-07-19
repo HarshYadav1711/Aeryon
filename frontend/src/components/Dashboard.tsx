@@ -5,6 +5,10 @@ import type {
   CsiReplaySnapshot,
   DspLatestResponse,
   DspSnapshot,
+  FeatureLatest,
+  FeatureSnapshot,
+  ObservationLatest,
+  PerceptionSnapshot,
   RuntimeSnapshot,
   SignalLatestResponse,
   SyntheticSensorSnapshot,
@@ -19,6 +23,10 @@ export type DashboardProps = {
   csiReplay: CsiReplaySnapshot | null
   calibration: CalibrationSnapshot | null
   dsp: DspSnapshot | null
+  features: FeatureSnapshot | null
+  featuresLatest: FeatureLatest | null
+  perception: PerceptionSnapshot | null
+  observationLatest: ObservationLatest | null
   signalLatest: SignalLatestResponse | null
   dspLatest: DspLatestResponse | null
   events: ApiEventEnvelope[]
@@ -50,8 +58,51 @@ const STAGE_DISPLAY: Record<string, string> = {
   rms_amplitude_normalize: 'RMS amplitude normalization',
 }
 
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  sensor_frame: 'Sensor frame',
+  csi_frame: 'CSI frame',
+  csi_frame_calibrated: 'CSI frame calibrated',
+  calibration_started: 'Calibration started',
+  calibration_failed: 'Calibration failed',
+  calibration_service_stopped: 'Calibration stopped',
+  dsp_service_started: 'DSP service started',
+  csi_window_assembled: 'CSI window assembled',
+  dsp_window_processed: 'DSP window processed',
+  dsp_processing_failed: 'DSP processing failed',
+  dsp_service_idle: 'DSP service idle',
+  dsp_service_completed: 'DSP service completed',
+  dsp_service_stopped: 'DSP service stopped',
+  feature_service_started: 'Feature service started',
+  feature_vector_produced: 'Feature vector produced',
+  feature_extraction_failed: 'Feature extraction failed',
+  feature_service_idle: 'Feature service idle',
+  feature_service_completed: 'Feature service completed',
+  feature_service_stopped: 'Feature service stopped',
+  perception_service_started: 'Perception service started',
+  channel_change_observed: 'Channel change observed',
+  observation_failed: 'Observation failed',
+  perception_service_idle: 'Perception service idle',
+  perception_service_completed: 'Perception service completed',
+  perception_service_stopped: 'Perception service stopped',
+}
+
+const SELECTED_FEATURE_IDS = [
+  'motion_energy_rms',
+  'motion_energy_p95',
+  'low_frequency_power_ratio',
+  'middle_frequency_power_ratio',
+  'high_frequency_power_ratio',
+] as const
+
+const OBSERVATION_DISCLAIMER =
+  'Signal-derived channel-change estimate. Not human-presence or activity recognition.'
+
 export function formatStageName(stage: string): string {
   return STAGE_DISPLAY[stage] ?? stage.replaceAll('_', ' ')
+}
+
+export function formatEventType(eventType: string): string {
+  return EVENT_TYPE_LABELS[eventType] ?? eventType.replaceAll('_', ' ')
 }
 
 export function formatBasename(path: string): string {
@@ -202,6 +253,79 @@ function presentDspState(dsp: DspSnapshot | null): string {
   }
 }
 
+function presentFeatureState(features: FeatureSnapshot | null): string {
+  if (!features) {
+    return '—'
+  }
+  if (!features.enabled) {
+    return 'Disabled'
+  }
+  switch (features.worker_state) {
+    case 'running':
+      return 'Active'
+    case 'completed':
+      return 'Completed'
+    case 'idle':
+      return 'Idle'
+    case 'disabled':
+      return 'Disabled'
+    case 'failed':
+      return 'Failed'
+    case 'stopped':
+      return 'Stopped'
+    default:
+      return features.health === 'degraded' ? 'Degraded' : features.worker_state
+  }
+}
+
+function presentObservationState(perception: PerceptionSnapshot | null): string {
+  if (!perception) {
+    return '—'
+  }
+  if (!perception.enabled) {
+    return 'Disabled'
+  }
+  switch (perception.worker_state) {
+    case 'running':
+      return 'Active'
+    case 'completed':
+      return 'Completed'
+    case 'idle':
+      return 'Idle'
+    case 'disabled':
+      return 'Disabled'
+    case 'failed':
+      return 'Failed'
+    case 'stopped':
+      return 'Stopped'
+    default:
+      return perception.health === 'degraded' ? 'Degraded' : perception.worker_state
+  }
+}
+
+export function presentChannelChangeState(state: string | null | undefined): string {
+  switch (state) {
+    case 'stable':
+      return 'Stable'
+    case 'changing':
+      return 'Changing'
+    case 'highly_changing':
+      return 'Highly changing'
+    case 'indeterminate':
+      return 'Indeterminate'
+    default:
+      return state ?? '—'
+  }
+}
+
+function featureValueById(
+  featuresLatest: FeatureLatest | null,
+  featureId: string,
+): number | null {
+  const entry = featuresLatest?.features?.find((feature) => feature.id === featureId)
+  return entry && Number.isFinite(entry.value) ? entry.value : null
+}
+
 function mapWorkerStage(
   enabled: boolean,
   worker: string | null | undefined,
@@ -236,6 +360,8 @@ export function buildPipelineStages(
   csiReplay: CsiReplaySnapshot | null,
   calibration: CalibrationSnapshot | null,
   dsp: DspSnapshot | null,
+  features: FeatureSnapshot | null,
+  perception: PerceptionSnapshot | null,
 ): PipelineStage[] {
   const replayCompleted = csiReplay?.completion === 'completed'
 
@@ -305,13 +431,37 @@ export function buildPipelineStages(
     Boolean(replayCompleted) && (dsp?.windows_emitted ?? 0) > 0,
   )
 
+  const featureState = mapWorkerStage(
+    Boolean(features?.enabled),
+    features?.worker_state,
+    features?.health,
+    Boolean(replayCompleted) && (features?.feature_vectors_produced ?? 0) > 0,
+  )
+
+  const observationState = mapWorkerStage(
+    Boolean(perception?.enabled),
+    perception?.worker_state,
+    perception?.health,
+    Boolean(replayCompleted) && (perception?.observations_produced ?? 0) > 0,
+  )
+
   return [
     { id: 'csi_replay', label: 'CSI Replay', state: replayState },
     { id: 'validation', label: 'Validation', state: validationState },
     { id: 'calibration', label: 'Calibration', state: calibrationState },
     { id: 'windowing', label: 'Windowing', state: windowingState },
     { id: 'spectral_dsp', label: 'Spectral DSP', state: spectralState },
-    { id: 'perception', label: 'Perception', state: 'not_implemented' },
+    { id: 'feature_extraction', label: 'Feature Extraction', state: featureState },
+    {
+      id: 'channel_change_observation',
+      label: 'Channel-Change Observation',
+      state: observationState,
+    },
+    {
+      id: 'occupancy_ml',
+      label: 'Occupancy/Activity ML',
+      state: 'not_implemented',
+    },
   ]
 }
 
@@ -361,6 +511,10 @@ export function Dashboard({
   csiReplay,
   calibration,
   dsp,
+  features,
+  featuresLatest,
+  perception,
+  observationLatest,
   signalLatest,
   dspLatest,
   events,
@@ -372,10 +526,13 @@ export function Dashboard({
 }: DashboardProps) {
   const csiActive = runtime?.active_source === 'csi_replay' || Boolean(runtime?.csi_replay_enabled)
   const replayCompleted = csiReplay?.completion === 'completed'
-  const pipeline = buildPipelineStages(csiReplay, calibration, dsp)
+  const pipeline = buildPipelineStages(csiReplay, calibration, dsp, features, perception)
   const dspDisabled = dsp !== null && !dsp.enabled
+  const featuresDisabled = features !== null && !features.enabled
+  const perceptionDisabled = perception !== null && !perception.enabled
   const signalLoading = signalLatest === null && connection === 'loading'
   const dspLatestLoading = dspLatest === null && connection === 'loading'
+  const featuresLatestLoading = featuresLatest === null && connection === 'loading'
 
   const subcarriers = indexAxis(
     Math.max(
@@ -406,6 +563,19 @@ export function Dashboard({
     Boolean(dspLatest?.available) && spectrumX.length > 0 && spectrumY.length > 0
   const dominantHz =
     dspLatest?.dominant_non_dc_hz ?? dsp?.latest_dominant_non_dc_hz ?? null
+
+  const selectedFeatures =
+    featuresLatest?.features?.filter((feature) =>
+      SELECTED_FEATURE_IDS.includes(feature.id as (typeof SELECTED_FEATURE_IDS)[number]),
+    ) ?? []
+
+  const lowBand = featureValueById(featuresLatest, 'low_frequency_power_ratio')
+  const middleBand = featureValueById(featuresLatest, 'middle_frequency_power_ratio')
+  const highBand = featureValueById(featuresLatest, 'high_frequency_power_ratio')
+  const hasFrequencyBands =
+    lowBand !== null && middleBand !== null && highBand !== null && featuresLatest?.available
+  const frequencyBandX = [0, 1, 2]
+  const frequencyBandY = [lowBand ?? 0, middleBand ?? 0, highBand ?? 0]
 
   const stagesText =
     calibration && calibration.stages.length > 0
@@ -466,6 +636,18 @@ export function Dashboard({
           </span>
         </div>
         <div className="status-cell">
+          <span className="status-label">Features</span>
+          <span className="status-value" data-testid="features-state">
+            {presentFeatureState(features)}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Observation</span>
+          <span className="status-value" data-testid="observation-state">
+            {presentObservationState(perception)}
+          </span>
+        </div>
+        <div className="status-cell">
           <span className="status-label">DSP backend</span>
           <span className="status-value" data-testid="dsp-backend">
             {dsp?.backend_display_name
@@ -509,6 +691,18 @@ export function Dashboard({
           <span className="status-label">Windows processed</span>
           <span className="status-value" data-testid="windows-processed">
             {dsp?.windows_emitted ?? '—'}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Feature vectors</span>
+          <span className="status-value" data-testid="feature-vectors-produced">
+            {features?.feature_vectors_produced ?? '—'}
+          </span>
+        </div>
+        <div className="status-cell">
+          <span className="status-label">Observations</span>
+          <span className="status-value" data-testid="observations-produced">
+            {perception?.observations_produced ?? '—'}
           </span>
         </div>
         <div className="status-cell">
@@ -634,9 +828,164 @@ export function Dashboard({
             </li>
           ))}
         </ol>
-        <p className="muted pipeline-note" data-testid="perception-note">
-          Perception is not implemented in this milestone.
+        <p className="muted pipeline-note" data-testid="occupancy-note">
+          Occupancy/activity ML is not implemented in this milestone.
         </p>
+      </section>
+
+      {features ? (
+        <section className="panel panel-compact" aria-labelledby="features-meta-heading">
+          <h2 id="features-meta-heading">Feature extraction</h2>
+          <dl className="metrics metrics-compact" data-testid="features-snapshot">
+            <div>
+              <dt>Profile</dt>
+              <dd className="ellipsis" data-testid="features-profile">
+                {features.profile.id ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Schema</dt>
+              <dd className="ellipsis" data-testid="features-schema">
+                {features.schema.id ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Vectors produced</dt>
+              <dd data-testid="features-produced">{features.feature_vectors_produced}</dd>
+            </div>
+            <div>
+              <dt>Worker</dt>
+              <dd data-testid="features-worker">{features.worker_state}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      <section className="panel" aria-labelledby="features-panel-heading">
+        <h2 id="features-panel-heading">Feature vector</h2>
+        {featuresDisabled ? (
+          <p className="muted" data-testid="features-disabled-banner">
+            Feature extraction is disabled.
+          </p>
+        ) : null}
+        {!featuresLatest?.available ? (
+          <p className="muted" data-testid="features-latest-empty">
+            No feature vector available yet.
+          </p>
+        ) : (
+          <>
+            <p className="muted feature-semantics" data-testid="features-semantics">
+              {featuresLatest.semantics_label ??
+                'Deterministic CSI channel descriptors; not presence, occupancy, or activity labels.'}
+            </p>
+            <dl className="metrics metrics-compact" data-testid="features-selected">
+              {selectedFeatures.map((feature) => (
+                <div key={feature.id}>
+                  <dt>{feature.id.replaceAll('_', ' ')}</dt>
+                  <dd>{feature.value.toFixed(4)}</dd>
+                </div>
+              ))}
+            </dl>
+            <details className="feature-table-details" data-testid="features-table-details">
+              <summary>All features ({featuresLatest.features?.length ?? 0})</summary>
+              <table className="feature-table" data-testid="features-table">
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    <th>Value</th>
+                    <th>Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(featuresLatest.features ?? []).map((feature) => (
+                    <tr key={feature.id}>
+                      <td>{feature.id}</td>
+                      <td>{feature.value.toFixed(6)}</td>
+                      <td>{feature.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+            <dl className="metrics metrics-compact feature-provenance" data-testid="features-provenance">
+              <div>
+                <dt>DSP profile</dt>
+                <dd>
+                  {featuresLatest.dsp_profile_id ?? '—'} v{featuresLatest.dsp_profile_version ?? '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>DSP backend</dt>
+                <dd>
+                  {featuresLatest.dsp_backend_id ?? '—'} {featuresLatest.dsp_backend_version ?? ''}
+                </dd>
+              </div>
+              <div>
+                <dt>Calibration profile</dt>
+                <dd>
+                  {featuresLatest.calibration_profile_id ?? '—'} v
+                  {featuresLatest.calibration_profile_version ?? '—'}
+                </dd>
+              </div>
+            </dl>
+          </>
+        )}
+      </section>
+
+      <section className="panel" aria-labelledby="observation-panel-heading">
+        <h2 id="observation-panel-heading">Channel-change observation</h2>
+        <p className="observation-disclaimer" data-testid="observation-disclaimer">
+          {observationLatest?.disclaimer ?? OBSERVATION_DISCLAIMER}
+        </p>
+        {perceptionDisabled ? (
+          <p className="muted" data-testid="observation-disabled-banner">
+            Channel-change observation is disabled.
+          </p>
+        ) : null}
+        {!observationLatest?.available ? (
+          <p className="muted" data-testid="observation-latest-empty">
+            No channel-change observation available yet.
+          </p>
+        ) : (
+          <dl className="metrics metrics-compact" data-testid="observation-latest">
+            <div>
+              <dt>State</dt>
+              <dd data-testid="observation-channel-state">
+                {presentChannelChangeState(observationLatest.state)}
+              </dd>
+            </div>
+            <div>
+              <dt>Activity score</dt>
+              <dd data-testid="observation-activity-score">
+                {observationLatest.activity_score?.toFixed(4) ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Score semantics</dt>
+              <dd className="ellipsis" data-testid="observation-score-semantics">
+                {observationLatest.score_semantics ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Reliability</dt>
+              <dd data-testid="observation-reliability">
+                {observationLatest.uncertainty?.reliability_score.toFixed(3) ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Threshold margin</dt>
+              <dd data-testid="observation-threshold-margin">
+                {observationLatest.uncertainty?.threshold_margin.toFixed(4) ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Window</dt>
+              <dd>
+                {observationLatest.first_sequence ?? '—'}–{observationLatest.last_sequence ?? '—'}
+              </dd>
+            </div>
+          </dl>
+        )}
       </section>
 
       <section className="panel" aria-labelledby="observatory-heading">
@@ -741,6 +1090,24 @@ export function Dashboard({
                 : 'Peaks are not interpreted as activities.'
             }
           />
+
+          <LineChart
+            title="Frequency Power Distribution"
+            testId="frequency-band-chart"
+            ariaLabel="Low, middle, and high non-DC spectral power ratios"
+            xValues={frequencyBandX}
+            series={[
+              {
+                name: 'power_ratio',
+                values: frequencyBandY,
+                color: '#6b4b1f',
+              },
+            ]}
+            empty={featuresDisabled || !hasFrequencyBands}
+            loading={!featuresDisabled && featuresLatestLoading}
+            error={featuresDisabled ? 'Feature extraction disabled' : null}
+            annotation="Non-DC power fractions by relative frequency band; not activity labels."
+          />
         </div>
       </section>
 
@@ -777,7 +1144,7 @@ export function Dashboard({
             {events.map((event, index) => (
               <li key={`${event.timestamp}-${event.type}-${index}`}>
                 <span className="event-type ellipsis" title={event.type}>
-                  {event.type}
+                  {formatEventType(event.type)}
                 </span>
                 <span className="event-time" title={event.timestamp}>
                   {formatTimestamp(event.timestamp)}

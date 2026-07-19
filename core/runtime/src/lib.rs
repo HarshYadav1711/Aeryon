@@ -30,6 +30,10 @@ pub use signal_store::{DEFAULT_RECENT_EVENT_CAPACITY, SignalSnapshotStore};
 
 // Re-export DSP stats for API surfaces.
 pub use aeryon_dsp::{DspConfig, DspStats, DspWindowResult, DspWorkerState};
+pub use aeryon_features::{FeatureStats, FeatureVector, FeatureWorkerState, FeaturesConfig};
+pub use aeryon_perception::{
+    ChannelChangeObservation, PerceptionConfig, PerceptionStats, PerceptionWorkerState,
+};
 
 /// Returns the runtime crate version.
 pub fn version() -> &'static str {

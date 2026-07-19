@@ -32,6 +32,9 @@ pub trait DspResultSink: Send + Sync + 'static {
     fn store_result(&self, result: Arc<DspWindowResult>);
 }
 
+/// Bounded channel for forwarding DSP results to a downstream consumer (features).
+pub type DspResultForwardTx = mpsc::Sender<Arc<DspWindowResult>>;
+
 /// Handles for a running DSP service.
 pub struct DspService {
     task: Option<JoinHandle<()>>,
@@ -47,6 +50,7 @@ impl DspService {
         profile: DspProfile,
         stats: Arc<DspStats>,
         result_sink: Option<Arc<dyn DspResultSink>>,
+        result_forward_tx: Option<DspResultForwardTx>,
     ) -> Result<Self, DspError> {
         config.validate()?;
         profile.validate()?;
@@ -135,6 +139,13 @@ impl DspService {
                                 let result = Arc::new(result);
                                 if let Some(sink) = &result_sink {
                                     sink.store_result(Arc::clone(&result));
+                                }
+                                if let Some(tx) = &result_forward_tx {
+                                    if tx.send(Arc::clone(&result)).await.is_err() {
+                                        tracing::warn!(
+                                            "downstream DSP result channel closed while forwarding"
+                                        );
+                                    }
                                 }
 
                                 let _ =
@@ -333,9 +344,15 @@ mod tests {
             ..DspConfig::default()
         };
         let profile = config.resolve_profile().expect("profile");
-        let mut service =
-            DspService::start(bus, config, profile, Arc::clone(&stats), Some(sink.clone()))
-                .expect("start");
+        let mut service = DspService::start(
+            bus,
+            config,
+            profile,
+            Arc::clone(&stats),
+            Some(sink.clone()),
+            None,
+        )
+        .expect("start");
         let tx = service.take_frame_tx().expect("tx");
 
         for sequence in 0..12 {

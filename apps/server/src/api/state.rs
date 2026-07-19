@@ -10,8 +10,12 @@ use tokio::sync::RwLock;
 
 use super::dto::{
     CalibratedMagnitudeGridLink, CalibrationSnapshot, ConfiguredFrequencies,
-    CsiReplayHealthSummary, CsiReplaySnapshot, DspLatestResponse, DspSnapshot, HealthResponse,
-    PluginSummary, PluginsResponse, RecentEventsResponse, RuntimeSnapshot, SignalLatestResponse,
+    CsiReplayHealthSummary, CsiReplaySnapshot, DspLatestResponse, DspSnapshot,
+    FeatureProfileSummary, FeatureSchemaSummary, FeatureValueEntry, FeaturesLatestResponse,
+    FeaturesSnapshot, HealthResponse, LinkFeaturesCompact, ObservationEvidenceDto,
+    ObservationFeatureEvidenceEntry, ObservationLatestResponse, ObservationProvenanceDto,
+    ObservationUncertaintyDto, PerceptionProfileSummary, PerceptionSnapshot, PluginSummary,
+    PluginsResponse, RecentEventsResponse, RuntimeSnapshot, SignalLatestResponse,
     SyntheticHealthSummary, SyntheticSensorSnapshot,
 };
 use super::error::ApiError;
@@ -29,6 +33,10 @@ const MOTION_ENERGY_SEMANTICS: &str =
 const SPECTRUM_SEMANTICS: &str = "One-sided Hann-windowed power spectrum of the motion-energy proxy; peaks are not activity labels";
 const TIMELINE_SEMANTICS: &str =
     "Frequencies and time axes use CSI capture timestamps, not replay wall-clock speed";
+const FEATURE_SEMANTICS_LABEL: &str =
+    "Deterministic CSI channel descriptors; not presence, occupancy, or activity labels.";
+const OBSERVATION_DISCLAIMER: &str =
+    "Signal-derived channel-change estimate. Not human-presence or activity recognition.";
 const RECENT_EVENTS_DEFAULT_LIMIT: usize = 50;
 const RECENT_EVENTS_MAX_LIMIT: usize = 100;
 
@@ -527,6 +535,255 @@ impl AppState {
         })
     }
 
+    /// Builds the feature-extraction status snapshot from config + live metrics.
+    pub async fn features_snapshot(&self) -> FeaturesSnapshot {
+        let runtime = self.runtime.read().await;
+        let context = runtime.context();
+        let stats = runtime.metrics().features();
+        let config = &context.config.features;
+
+        let (profile_id, profile_version) = if config.enabled {
+            match config.resolve_profile() {
+                Ok(profile) => (Some(profile.id.clone()), Some(profile.version)),
+                Err(_) => (stats.profile_id(), stats.profile_version()),
+            }
+        } else {
+            (None, None)
+        };
+
+        let (schema_id, schema_version, schema_description, feature_count) = if config.enabled {
+            match config
+                .resolve_profile()
+                .and_then(|profile| profile.schema())
+            {
+                Ok(schema) => (
+                    Some(schema.id.clone()),
+                    Some(schema.version),
+                    Some(schema.description.clone()),
+                    schema.length(),
+                ),
+                Err(_) => (stats.schema_id(), stats.schema_version(), None, 0),
+            }
+        } else {
+            (None, None, None, 0)
+        };
+
+        let (latest_first_sequence, latest_last_sequence) = match stats.latest_sequence_range() {
+            Some((first, last)) => (Some(first), Some(last)),
+            None => (None, None),
+        };
+
+        FeaturesSnapshot {
+            enabled: config.enabled,
+            profile: FeatureProfileSummary {
+                id: profile_id,
+                version: profile_version,
+            },
+            schema: FeatureSchemaSummary {
+                id: schema_id,
+                version: schema_version,
+                description: schema_description,
+                feature_count,
+            },
+            worker_state: stats.worker_state().as_str().to_owned(),
+            health: feature_health_label(stats.as_ref()),
+            dsp_results_received: stats.dsp_results_received(),
+            feature_vectors_produced: stats.feature_vectors_produced(),
+            feature_failures: stats.feature_failures(),
+            latest_feature_vector_id: stats.latest_feature_vector_id(),
+            latest_first_sequence,
+            latest_last_sequence,
+            last_duration_ns: stats.last_duration_ns(),
+            average_duration_ns: stats.average_duration_ns(),
+            last_warning: stats.last_warning(),
+            last_error: stats.last_error(),
+            data_classification: PIPELINE_DATA_CLASSIFICATION,
+        }
+    }
+
+    /// Builds the latest feature vector snapshot.
+    pub async fn features_latest_snapshot(&self) -> FeaturesLatestResponse {
+        let runtime = self.runtime.read().await;
+        let Some(vector) = runtime.signal_store().latest_features() else {
+            return FeaturesLatestResponse::unavailable();
+        };
+
+        let schema = if aeryon_features::csi_channel_features_v1()
+            .assert_compatible(&vector.feature_schema_id, vector.feature_schema_version)
+            .is_ok()
+        {
+            aeryon_features::csi_channel_features_v1()
+        } else {
+            return FeaturesLatestResponse::unavailable();
+        };
+
+        let ordered_values = vector.values().to_vec();
+        let features = schema
+            .features
+            .iter()
+            .zip(ordered_values.iter())
+            .map(|(definition, value)| FeatureValueEntry {
+                id: definition.id.as_str().to_owned(),
+                value: *value,
+                unit: definition.unit.to_owned(),
+                description: definition.description.to_owned(),
+            })
+            .collect();
+
+        let link_features = vector
+            .link_features
+            .iter()
+            .map(|link| LinkFeaturesCompact {
+                rx: link.link.rx,
+                tx: link.link.tx,
+                ordered_values: link.values.clone(),
+            })
+            .collect();
+
+        FeaturesLatestResponse {
+            available: true,
+            feature_vector_id: Some(vector.feature_vector_id),
+            sensor_id: Some(vector.sensor_id.value()),
+            window_id: Some(vector.window_id),
+            first_sequence: Some(vector.first_sequence),
+            last_sequence: Some(vector.last_sequence),
+            first_capture_timestamp: Some(nanos_to_rfc3339(
+                vector.first_capture_timestamp.as_nanos(),
+            )),
+            last_capture_timestamp: Some(nanos_to_rfc3339(
+                vector.last_capture_timestamp.as_nanos(),
+            )),
+            extracted_at: Some(nanos_to_rfc3339(vector.extracted_at.as_nanos())),
+            feature_schema_id: Some(vector.feature_schema_id.clone()),
+            feature_schema_version: Some(vector.feature_schema_version),
+            feature_profile_id: Some(vector.feature_profile_id.clone()),
+            feature_profile_version: Some(vector.feature_profile_version),
+            dsp_profile_id: Some(vector.dsp_profile_id.clone()),
+            dsp_profile_version: Some(vector.dsp_profile_version),
+            dsp_backend_id: Some(vector.dsp_backend_id.clone()),
+            dsp_backend_version: Some(vector.dsp_backend_version.clone()),
+            dsp_backend_abi_version: vector.dsp_backend_abi_version,
+            calibration_profile_id: Some(vector.calibration_profile_id.clone()),
+            calibration_profile_version: Some(vector.calibration_profile_version),
+            ordered_values: Some(ordered_values),
+            features: Some(features),
+            link_features: Some(link_features),
+            processing_duration_ns: Some(vector.processing_duration_ns),
+            warnings: Some(vector.warnings.clone()),
+            semantics_label: Some(FEATURE_SEMANTICS_LABEL),
+            data_classification: Some(PIPELINE_DATA_CLASSIFICATION),
+        }
+    }
+
+    /// Builds the perception status snapshot from config + live metrics.
+    pub async fn perception_snapshot(&self) -> PerceptionSnapshot {
+        let runtime = self.runtime.read().await;
+        let context = runtime.context();
+        let stats = runtime.metrics().perception();
+        let config = &context.config.perception;
+
+        let (profile_id, profile_version) = if config.enabled {
+            match config.resolve_profile() {
+                Ok(profile) => (Some(profile.id.clone()), Some(profile.version)),
+                Err(_) => (stats.profile_id(), stats.profile_version()),
+            }
+        } else {
+            (None, None)
+        };
+
+        PerceptionSnapshot {
+            enabled: config.enabled,
+            profile: PerceptionProfileSummary {
+                id: profile_id,
+                version: profile_version,
+            },
+            worker_state: stats.worker_state().as_str().to_owned(),
+            health: perception_health_label(stats.as_ref()),
+            feature_vectors_received: stats.feature_vectors_received(),
+            observations_produced: stats.observations_produced(),
+            observation_failures: stats.observation_failures(),
+            latest_observation_id: stats.latest_observation_id(),
+            latest_observation_state: stats.latest_observation_state(),
+            latest_activity_score: stats.latest_activity_score(),
+            last_duration_ns: stats.last_duration_ns(),
+            average_duration_ns: stats.average_duration_ns(),
+            last_warning: stats.last_warning(),
+            last_error: stats.last_error(),
+            data_classification: PIPELINE_DATA_CLASSIFICATION,
+        }
+    }
+
+    /// Builds the latest channel-change observation snapshot.
+    pub async fn observation_latest_snapshot(&self) -> ObservationLatestResponse {
+        let runtime = self.runtime.read().await;
+        let Some(observation) = runtime.signal_store().latest_observation() else {
+            return ObservationLatestResponse::unavailable();
+        };
+
+        ObservationLatestResponse {
+            available: true,
+            observation_type: Some("channel_change"),
+            observation_id: Some(observation.observation_id),
+            sensor_id: Some(observation.sensor_id.value()),
+            feature_vector_id: Some(observation.feature_vector_id),
+            window_id: Some(observation.window_id),
+            first_sequence: Some(observation.first_sequence),
+            last_sequence: Some(observation.last_sequence),
+            first_capture_timestamp: Some(nanos_to_rfc3339(
+                observation.first_capture_timestamp.as_nanos(),
+            )),
+            last_capture_timestamp: Some(nanos_to_rfc3339(
+                observation.last_capture_timestamp.as_nanos(),
+            )),
+            created_at: Some(nanos_to_rfc3339(observation.created_at.as_nanos())),
+            state: Some(observation.state.as_str().to_owned()),
+            activity_score: Some(observation.activity_score),
+            score_semantics: Some(observation.score_semantics.clone()),
+            disclaimer: Some(OBSERVATION_DISCLAIMER),
+            evidence: Some(ObservationEvidenceDto {
+                features: observation
+                    .evidence
+                    .features
+                    .iter()
+                    .map(|entry| ObservationFeatureEvidenceEntry {
+                        feature_id: entry.feature_id.as_str().to_owned(),
+                        value: entry.value,
+                        normalized_contribution: entry.normalized_contribution,
+                    })
+                    .collect(),
+                activity_score: observation.evidence.activity_score,
+                stable_threshold: observation.evidence.stable_threshold,
+                high_change_threshold: observation.evidence.high_change_threshold,
+                threshold_margin: observation.evidence.threshold_margin,
+                data_quality_warnings: observation.evidence.data_quality_warnings.clone(),
+            }),
+            uncertainty: Some(ObservationUncertaintyDto {
+                threshold_margin: observation.uncertainty.threshold_margin,
+                normalized_threshold_margin: observation.uncertainty.normalized_threshold_margin,
+                timestamp_jitter: observation.uncertainty.timestamp_jitter,
+                warning_count: observation.uncertainty.warning_count,
+                supporting_frame_count: observation.uncertainty.supporting_frame_count,
+                valid_antenna_links: observation.uncertainty.valid_antenna_links,
+                reliability_score: observation.uncertainty.reliability_score,
+                reliability_provenance: observation.uncertainty.reliability_provenance.clone(),
+            }),
+            provenance: Some(ObservationProvenanceDto {
+                threshold_profile_id: observation.threshold_profile_id.clone(),
+                threshold_profile_version: observation.threshold_profile_version,
+                feature_schema_id: observation.feature_schema_id.clone(),
+                feature_schema_version: observation.feature_schema_version,
+                feature_profile_id: observation.feature_profile_id.clone(),
+                feature_profile_version: observation.feature_profile_version,
+                dsp_profile_id: observation.dsp_profile_id.clone(),
+                dsp_profile_version: observation.dsp_profile_version,
+                dsp_backend_id: observation.dsp_backend_id.clone(),
+                dsp_backend_version: observation.dsp_backend_version.clone(),
+            }),
+            warnings: Some(observation.warnings.clone()),
+            data_classification: Some(PIPELINE_DATA_CLASSIFICATION),
+        }
+    }
+
     /// Builds a chronological recent-events snapshot from the signal store.
     pub async fn recent_events_snapshot(&self, limit: Option<usize>) -> RecentEventsResponse {
         let runtime = self.runtime.read().await;
@@ -660,6 +917,52 @@ fn dsp_health_label(stats: &aeryon_runtime::DspStats) -> String {
         DspWorkerState::Failed => "failed".to_owned(),
         DspWorkerState::Running => {
             if stats.unexpected_exit() || stats.consecutive_failures() > 0 {
+                "degraded".to_owned()
+            } else {
+                "running".to_owned()
+            }
+        }
+    }
+}
+
+fn feature_health_label(stats: &aeryon_runtime::FeatureStats) -> String {
+    use aeryon_runtime::FeatureWorkerState;
+
+    if !stats.enabled() {
+        return "disabled".to_owned();
+    }
+
+    match stats.worker_state() {
+        FeatureWorkerState::Disabled => "disabled".to_owned(),
+        FeatureWorkerState::Idle => "idle".to_owned(),
+        FeatureWorkerState::Completed => "completed".to_owned(),
+        FeatureWorkerState::Stopped => "stopped".to_owned(),
+        FeatureWorkerState::Failed => "failed".to_owned(),
+        FeatureWorkerState::Running => {
+            if stats.unexpected_exit() {
+                "degraded".to_owned()
+            } else {
+                "running".to_owned()
+            }
+        }
+    }
+}
+
+fn perception_health_label(stats: &aeryon_runtime::PerceptionStats) -> String {
+    use aeryon_runtime::PerceptionWorkerState;
+
+    if !stats.enabled() {
+        return "disabled".to_owned();
+    }
+
+    match stats.worker_state() {
+        PerceptionWorkerState::Disabled => "disabled".to_owned(),
+        PerceptionWorkerState::Idle => "idle".to_owned(),
+        PerceptionWorkerState::Completed => "completed".to_owned(),
+        PerceptionWorkerState::Stopped => "stopped".to_owned(),
+        PerceptionWorkerState::Failed => "failed".to_owned(),
+        PerceptionWorkerState::Running => {
+            if stats.unexpected_exit() {
                 "degraded".to_owned()
             } else {
                 "running".to_owned()

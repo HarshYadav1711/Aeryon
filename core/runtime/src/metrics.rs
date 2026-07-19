@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use aeryon_csi_replay::{CsiReplayCompletion, CsiReplayStats};
 use aeryon_dsp::{DspStats, DspWorkerState};
+use aeryon_features::FeatureStats;
+use aeryon_perception::PerceptionStats;
 use aeryon_plugin_runtime::LifecycleState;
 
 use crate::calibration_stats::CalibrationStats;
@@ -29,6 +31,10 @@ pub struct RuntimeMetrics {
     calibration: Arc<CalibrationStats>,
     /// Dedicated DSP statistics (shared with the DSP worker).
     dsp: Arc<DspStats>,
+    /// Dedicated feature-extraction statistics.
+    features: Arc<FeatureStats>,
+    /// Dedicated perception statistics.
+    perception: Arc<PerceptionStats>,
 }
 
 impl Default for RuntimeMetrics {
@@ -53,6 +59,8 @@ impl RuntimeMetrics {
             csi_replay: CsiReplayStats::new().shared(),
             calibration: CalibrationStats::new().shared(),
             dsp: DspStats::new().shared(),
+            features: FeatureStats::new().shared(),
+            perception: PerceptionStats::new().shared(),
         }
     }
 
@@ -74,6 +82,16 @@ impl RuntimeMetrics {
     /// Returns the shared DSP statistics handle.
     pub fn dsp(&self) -> &Arc<DspStats> {
         &self.dsp
+    }
+
+    /// Returns the shared feature-extraction statistics handle.
+    pub fn features(&self) -> &Arc<FeatureStats> {
+        &self.features
+    }
+
+    /// Returns the shared perception statistics handle.
+    pub fn perception(&self) -> &Arc<PerceptionStats> {
+        &self.perception
     }
 
     /// Records that the event consumer task is running.

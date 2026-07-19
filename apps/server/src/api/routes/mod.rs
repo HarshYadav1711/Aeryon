@@ -3,7 +3,9 @@
 mod calibration;
 mod dsp;
 mod events;
+mod features;
 mod health;
+mod observations;
 mod plugins;
 mod runtime;
 mod sensors;
@@ -40,6 +42,16 @@ pub fn build_router(state: AppState, api: &ApiConfig) -> Router {
         .route("/api/v1/calibration", get(calibration::calibration_handler))
         .route("/api/v1/dsp", get(dsp::dsp_handler))
         .route("/api/v1/dsp/latest", get(dsp::dsp_latest_handler))
+        .route("/api/v1/features", get(features::features_handler))
+        .route(
+            "/api/v1/features/latest",
+            get(features::features_latest_handler),
+        )
+        .route("/api/v1/perception", get(observations::perception_handler))
+        .route(
+            "/api/v1/observations/latest",
+            get(observations::observation_latest_handler),
+        )
         .route("/api/v1/signal/latest", get(signal::signal_latest_handler))
         .route("/api/v1/events/recent", get(events::recent_events_handler))
         .route("/api/v1/events/ws", get(events::events_ws_handler))

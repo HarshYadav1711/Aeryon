@@ -372,6 +372,77 @@ fn csi_dsp_config(path: &str) -> AppConfig {
     .expect("valid dsp config")
 }
 
+fn csi_full_pipeline_config(path: &str) -> AppConfig {
+    AppConfig::from_toml(&format!(
+        r#"
+        [application]
+        name = "aeryon"
+        environment = "development"
+
+        [logging]
+        level = "error"
+
+        [plugins]
+        enabled = true
+        autoload = false
+
+        [runtime]
+        shutdown_timeout_secs = 10
+        first_frame_timeout_ms = 2000
+
+        [api]
+        enabled = true
+        host = "127.0.0.1"
+        port = 8080
+        cors_origins = ["http://127.0.0.1:5173"]
+
+        [synthetic_sensor]
+        enabled = false
+
+        [sensors.csi_replay]
+        enabled = true
+        path = "{path}"
+        loop_playback = false
+        frame_interval_ms = 10
+        maximum_frames = 16
+
+        [calibration]
+        enabled = true
+        profile = "baseline-csi-v1"
+        queue_capacity = 32
+
+        [dsp]
+        enabled = true
+        profile = "baseline-dsp-v1"
+        backend = "rust"
+        queue_capacity = 32
+        window_size_frames = 8
+        hop_size_frames = 4
+        maximum_sequence_gap = 1
+        timestamp_jitter_tolerance = 0.50
+
+        [features]
+        enabled = true
+        profile = "baseline-features-v1"
+        queue_capacity = 32
+
+        [perception]
+        enabled = true
+        profile = "channel-change-v1"
+        queue_capacity = 32
+
+        [perception.channel_change_v1]
+        stable_threshold = 0.22
+        high_change_threshold = 0.55
+        motion_energy_rms_scale = 0.35
+        motion_energy_p95_scale = 0.55
+        minimum_margin = 0.0
+        maximum_timestamp_jitter = 0.10
+        "#
+    ))
+    .expect("valid full pipeline config")
+}
+
 fn write_temp_csi_fixture() -> tempfile::NamedTempFile {
     write_temp_csi_fixture_with_frames(8)
 }
@@ -514,6 +585,31 @@ async fn signal_and_dsp_endpoints_report_no_data_before_frames() {
     let (events_status, events_body) = json_get(state.clone(), "/api/v1/events/recent").await;
     assert_eq!(events_status, StatusCode::OK);
     assert!(events_body["events"].as_array().expect("events").is_empty());
+
+    let (features_status, features_body) = json_get(state.clone(), "/api/v1/features").await;
+    assert_eq!(features_status, StatusCode::OK);
+    assert_eq!(features_body["enabled"], false);
+    assert_eq!(features_body["worker_state"], "disabled");
+    assert_eq!(features_body["health"], "disabled");
+
+    let (features_latest_status, features_latest_body) =
+        json_get(state.clone(), "/api/v1/features/latest").await;
+    assert_eq!(features_latest_status, StatusCode::OK);
+    assert_eq!(features_latest_body["available"], false);
+    assert!(features_latest_body.get("features").is_none());
+
+    let (perception_status, perception_body) = json_get(state.clone(), "/api/v1/perception").await;
+    assert_eq!(perception_status, StatusCode::OK);
+    assert_eq!(perception_body["enabled"], false);
+    assert_eq!(perception_body["worker_state"], "disabled");
+    assert_eq!(perception_body["health"], "disabled");
+
+    let (observation_status, observation_body) =
+        json_get(state.clone(), "/api/v1/observations/latest").await;
+    assert_eq!(observation_status, StatusCode::OK);
+    assert_eq!(observation_body["available"], false);
+    assert!(observation_body.get("disclaimer").is_none());
+    assert!(observation_body.get("type").is_none());
 
     state.runtime().write().await.shutdown().expect("shutdown");
 }
@@ -687,6 +783,149 @@ async fn signal_dsp_and_events_endpoints_after_pipeline() {
         json_get(state.clone(), "/api/v1/events/recent?limit=1").await;
     assert_eq!(events_one, StatusCode::OK);
     assert_eq!(events_one_body["events"].as_array().expect("one").len(), 1);
+
+    state.runtime().write().await.shutdown().expect("shutdown");
+}
+
+#[tokio::test]
+async fn features_perception_and_observation_endpoints_after_pipeline() {
+    let fixture = write_temp_csi_fixture_with_frames(16);
+    let path = fixture.path().to_string_lossy().replace('\\', "/");
+    let mut runtime = Runtime::boot(csi_full_pipeline_config(&path)).expect("boot");
+    let mut receiver = runtime.context().event_bus.subscribe();
+    runtime.start().expect("start");
+
+    let mut feature_vectors = 0_u32;
+    let mut observations = 0_u32;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+    while (feature_vectors < 1 || observations < 1) && tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_millis(800), receiver.recv()).await {
+            Ok(Ok(Event::FeatureVectorProduced(_))) => feature_vectors += 1,
+            Ok(Ok(Event::ChannelChangeObserved(_))) => observations += 1,
+            Ok(Ok(_)) => {}
+            Ok(Err(_)) => break,
+            Err(_) => continue,
+        }
+    }
+    assert!(
+        feature_vectors >= 1,
+        "expected at least one feature vector, produced={}",
+        runtime.metrics().features().feature_vectors_produced()
+    );
+    assert!(
+        observations >= 1,
+        "expected at least one observation, produced={}",
+        runtime.metrics().perception().observations_produced()
+    );
+
+    let settle = tokio::time::Instant::now() + Duration::from_secs(2);
+    while tokio::time::Instant::now() < settle {
+        let feature_state = runtime.metrics().features().worker_state();
+        let perception_state = runtime.metrics().perception().worker_state();
+        if matches!(
+            feature_state,
+            aeryon_runtime::FeatureWorkerState::Completed
+                | aeryon_runtime::FeatureWorkerState::Idle
+        ) && matches!(
+            perception_state,
+            aeryon_runtime::PerceptionWorkerState::Completed
+                | aeryon_runtime::PerceptionWorkerState::Idle
+        ) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let metrics_features = runtime.metrics().features().feature_vectors_produced();
+    let metrics_observations = runtime.metrics().perception().observations_produced();
+    let state = test_state(runtime);
+
+    let (features_status, features_body) = json_get(state.clone(), "/api/v1/features").await;
+    assert_eq!(features_status, StatusCode::OK);
+    assert_eq!(features_body["enabled"], true);
+    assert_eq!(features_body["profile"]["id"], "baseline-features-v1");
+    assert_eq!(features_body["schema"]["id"], "csi-channel-features-v1");
+    assert!(
+        features_body["schema"]["feature_count"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 1
+    );
+    assert_eq!(
+        features_body["feature_vectors_produced"].as_u64(),
+        Some(metrics_features)
+    );
+    assert!(features_body["latest_feature_vector_id"].as_u64().is_some());
+
+    let (features_latest_status, features_latest_body) =
+        json_get(state.clone(), "/api/v1/features/latest").await;
+    assert_eq!(features_latest_status, StatusCode::OK);
+    assert_eq!(features_latest_body["available"], true);
+    assert_eq!(
+        features_latest_body["semantics_label"]
+            .as_str()
+            .unwrap_or(""),
+        "Deterministic CSI channel descriptors; not presence, occupancy, or activity labels."
+    );
+    let feature_entries = features_latest_body["features"]
+        .as_array()
+        .expect("features");
+    assert!(!feature_entries.is_empty());
+    assert_eq!(feature_entries[0]["id"], "motion_energy_mean");
+    assert_eq!(
+        features_latest_body["ordered_values"]
+            .as_array()
+            .expect("ordered values")
+            .len(),
+        feature_entries.len()
+    );
+    assert!(features_latest_body["link_features"].as_array().is_some());
+
+    let (perception_status, perception_body) = json_get(state.clone(), "/api/v1/perception").await;
+    assert_eq!(perception_status, StatusCode::OK);
+    assert_eq!(perception_body["enabled"], true);
+    assert_eq!(perception_body["profile"]["id"], "channel-change-v1");
+    assert_eq!(
+        perception_body["observations_produced"].as_u64(),
+        Some(metrics_observations)
+    );
+    assert!(perception_body["latest_observation_id"].as_u64().is_some());
+    assert!(perception_body["latest_activity_score"].as_f64().is_some());
+
+    let (observation_status, observation_body) =
+        json_get(state.clone(), "/api/v1/observations/latest").await;
+    assert_eq!(observation_status, StatusCode::OK);
+    assert_eq!(observation_body["available"], true);
+    assert_eq!(observation_body["type"], "channel_change");
+    assert_eq!(
+        observation_body["disclaimer"],
+        "Signal-derived channel-change estimate. Not human-presence or activity recognition."
+    );
+    assert!(observation_body["score_semantics"].as_str().is_some());
+    assert!(observation_body["state"].as_str().is_some());
+    assert!(observation_body["activity_score"].as_f64().is_some());
+    assert!(observation_body["evidence"].is_object());
+    assert!(observation_body["uncertainty"].is_object());
+    assert!(observation_body["provenance"].is_object());
+    assert!(observation_body.get("occupancy").is_none());
+    assert!(observation_body.get("human_presence").is_none());
+    assert!(observation_body.get("presence").is_none());
+    assert!(observation_body.get("confidence").is_none());
+
+    let (events_status, events_body) =
+        json_get(state.clone(), "/api/v1/events/recent?limit=50").await;
+    assert_eq!(events_status, StatusCode::OK);
+    let events = events_body["events"].as_array().expect("events");
+    assert!(
+        events
+            .iter()
+            .any(|event| event["type"] == "feature_vector_produced")
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event["type"] == "channel_change_observed")
+    );
 
     state.runtime().write().await.shutdown().expect("shutdown");
 }

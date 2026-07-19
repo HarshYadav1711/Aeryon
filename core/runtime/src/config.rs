@@ -8,6 +8,8 @@ use std::str::FromStr;
 use aeryon_calibration::CalibrationConfig;
 use aeryon_csi_replay::CsiReplayConfig;
 use aeryon_dsp::DspConfig;
+use aeryon_features::FeaturesConfig;
+use aeryon_perception::PerceptionConfig;
 use aeryon_synthetic_sensor::SyntheticSensorConfig;
 use serde::Deserialize;
 
@@ -75,6 +77,24 @@ window_size_frames = 16
 hop_size_frames = 4
 maximum_sequence_gap = 1
 timestamp_jitter_tolerance = 0.10
+
+[features]
+enabled = false
+profile = "baseline-features-v1"
+queue_capacity = 64
+
+[perception]
+enabled = false
+profile = "channel-change-v1"
+queue_capacity = 64
+
+[perception.channel_change_v1]
+stable_threshold = 0.22
+high_change_threshold = 0.55
+motion_energy_rms_scale = 0.35
+motion_energy_p95_scale = 0.55
+minimum_margin = 0.0
+maximum_timestamp_jitter = 0.10
 "#;
 
 /// Top-level application configuration.
@@ -103,6 +123,12 @@ pub struct AppConfig {
     /// Temporal CSI DSP configuration.
     #[serde(default)]
     pub dsp: DspConfig,
+    /// CSI feature extraction configuration.
+    #[serde(default)]
+    pub features: FeaturesConfig,
+    /// Channel-change perception configuration.
+    #[serde(default)]
+    pub perception: PerceptionConfig,
 }
 
 /// Nested sensor plugin configuration sections.
@@ -312,8 +338,18 @@ impl AppConfig {
             .validate()
             .map_err(ConfigError::Calibration)?;
         self.dsp.validate().map_err(ConfigError::Dsp)?;
+        self.features.validate().map_err(ConfigError::Features)?;
+        self.perception
+            .validate()
+            .map_err(ConfigError::Perception)?;
         if self.dsp.enabled && !self.calibration.enabled {
             return Err(ConfigError::DspRequiresCalibration);
+        }
+        if self.features.enabled && !self.dsp.enabled {
+            return Err(ConfigError::FeaturesRequireDsp);
+        }
+        if self.perception.enabled && !self.features.enabled {
+            return Err(ConfigError::PerceptionRequiresFeatures);
         }
         if self.synthetic_sensor.enabled && self.sensors.csi_replay.enabled {
             return Err(ConfigError::ConflictingSensorSources);

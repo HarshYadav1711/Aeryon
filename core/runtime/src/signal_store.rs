@@ -7,6 +7,8 @@ use aeryon_calibration::CalibratedCsiFrame;
 use aeryon_csi::CsiFrame;
 use aeryon_domain::Event;
 use aeryon_dsp::{DspResultSink, DspWindowResult};
+use aeryon_features::{FeatureVector, FeatureVectorSink};
+use aeryon_perception::{ChannelChangeObservation, ObservationSink};
 
 /// Default capacity for recent metadata events.
 pub const DEFAULT_RECENT_EVENT_CAPACITY: usize = 100;
@@ -17,6 +19,8 @@ pub struct SignalSnapshotStore {
     latest_raw: Mutex<Option<Arc<CsiFrame>>>,
     latest_calibrated: Mutex<Option<Arc<CalibratedCsiFrame>>>,
     latest_dsp: Mutex<Option<Arc<DspWindowResult>>>,
+    latest_features: Mutex<Option<Arc<FeatureVector>>>,
+    latest_observation: Mutex<Option<Arc<ChannelChangeObservation>>>,
     recent_events: Mutex<VecDeque<Event>>,
     recent_capacity: usize,
 }
@@ -34,6 +38,8 @@ impl SignalSnapshotStore {
             latest_raw: Mutex::new(None),
             latest_calibrated: Mutex::new(None),
             latest_dsp: Mutex::new(None),
+            latest_features: Mutex::new(None),
+            latest_observation: Mutex::new(None),
             recent_events: Mutex::new(VecDeque::with_capacity(recent_capacity.max(1))),
             recent_capacity: recent_capacity.max(1),
         }
@@ -89,6 +95,22 @@ impl SignalSnapshotStore {
         self.latest_dsp.lock().ok().and_then(|guard| guard.clone())
     }
 
+    /// Latest feature vector, if any.
+    pub fn latest_features(&self) -> Option<Arc<FeatureVector>> {
+        self.latest_features
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    /// Latest channel-change observation, if any.
+    pub fn latest_observation(&self) -> Option<Arc<ChannelChangeObservation>> {
+        self.latest_observation
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
     /// Recent events in chronological order, optionally limited.
     pub fn recent_events(&self, limit: usize) -> Vec<Event> {
         let Ok(guard) = self.recent_events.lock() else {
@@ -110,5 +132,21 @@ impl SignalSnapshotStore {
 impl DspResultSink for SignalSnapshotStore {
     fn store_result(&self, result: Arc<DspWindowResult>) {
         self.store_dsp(result);
+    }
+}
+
+impl FeatureVectorSink for SignalSnapshotStore {
+    fn store_features(&self, vector: Arc<FeatureVector>) {
+        if let Ok(mut guard) = self.latest_features.lock() {
+            *guard = Some(vector);
+        }
+    }
+}
+
+impl ObservationSink for SignalSnapshotStore {
+    fn store_observation(&self, observation: Arc<ChannelChangeObservation>) {
+        if let Ok(mut guard) = self.latest_observation.lock() {
+            *guard = Some(observation);
+        }
     }
 }

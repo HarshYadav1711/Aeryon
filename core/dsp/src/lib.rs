@@ -40,7 +40,9 @@ pub use profile::{
 };
 pub use report::process_window;
 pub use result::{DspResultStatus, DspWindowResult, MotionEnergySeries};
-pub use service::{CalibratedFrameRx, CalibratedFrameTx, DspResultSink, DspService};
+pub use service::{
+    CalibratedFrameRx, CalibratedFrameTx, DspResultForwardTx, DspResultSink, DspService,
+};
 pub use spectral::{
     LinkPowerSpectrum, SamplingAnalysis, SpectralAnalysis, analyze_sampling, analyze_spectrum,
     analyze_spectrum_with_backend, hann_window,

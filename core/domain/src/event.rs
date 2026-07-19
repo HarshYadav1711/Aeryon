@@ -397,6 +397,242 @@ pub struct DspServiceStopped {
     pub timestamp: Timestamp,
 }
 
+/// Feature extraction service started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureServiceStarted {
+    /// Start timestamp.
+    pub timestamp: Timestamp,
+    /// Active feature profile identity.
+    pub profile_id: String,
+    /// Active feature profile version.
+    pub profile_version: u32,
+    /// Active feature schema identity.
+    pub schema_id: String,
+    /// Active feature schema version.
+    pub schema_version: u32,
+}
+
+/// A feature vector was produced (metadata only; no numerical arrays).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureVectorProduced {
+    /// Feature-vector identity.
+    pub feature_vector_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Source DSP window identity.
+    pub window_id: u64,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Feature schema identity.
+    pub schema_id: String,
+    /// Feature schema version.
+    pub schema_version: u32,
+    /// Feature profile identity.
+    pub profile_id: String,
+    /// Feature profile version.
+    pub profile_version: u32,
+    /// Number of aggregate features.
+    pub feature_count: u32,
+    /// Number of antenna links.
+    pub link_count: u32,
+    /// Processing duration in nanoseconds.
+    pub processing_duration_ns: u64,
+    /// Extraction completion timestamp.
+    pub extracted_at: Timestamp,
+}
+
+/// Machine-readable feature extraction failure codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FeatureFailureCode {
+    /// DSP profile incompatible with the feature profile.
+    IncompatibleDspProfile,
+    /// Motion-energy series missing.
+    MissingMotionEnergy,
+    /// Spectrum missing.
+    MissingSpectrum,
+    /// Per-link data mismatch.
+    MismatchedLinkData,
+    /// Empty signal input.
+    EmptySignal,
+    /// Non-finite values.
+    NonFinite,
+    /// Invalid spectral power.
+    InvalidPower,
+    /// Zero total power where unsupported.
+    ZeroTotalPower,
+    /// Invalid feature profile.
+    InvalidProfile,
+    /// Schema mismatch.
+    SchemaMismatch,
+    /// Output validation failure.
+    OutputValidation,
+    /// Service-level failure.
+    ServiceFailure,
+}
+
+impl FeatureFailureCode {
+    /// Stable wire label.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::IncompatibleDspProfile => "incompatible_dsp_profile",
+            Self::MissingMotionEnergy => "missing_motion_energy",
+            Self::MissingSpectrum => "missing_spectrum",
+            Self::MismatchedLinkData => "mismatched_link_data",
+            Self::EmptySignal => "empty_signal",
+            Self::NonFinite => "non_finite",
+            Self::InvalidPower => "invalid_power",
+            Self::ZeroTotalPower => "zero_total_power",
+            Self::InvalidProfile => "invalid_profile",
+            Self::SchemaMismatch => "schema_mismatch",
+            Self::OutputValidation => "output_validation",
+            Self::ServiceFailure => "service_failure",
+        }
+    }
+}
+
+/// Feature extraction failed for a window or service-level fault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureExtractionFailed {
+    /// Window identity when available.
+    pub window_id: Option<u64>,
+    /// Source sensor identifier when available.
+    pub sensor_id: Option<SensorId>,
+    /// Inclusive first sequence when available.
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence when available.
+    pub last_sequence: Option<u64>,
+    /// Failure timestamp.
+    pub timestamp: Timestamp,
+    /// Typed failure code.
+    pub code: FeatureFailureCode,
+    /// Concise operator-safe message.
+    pub message: String,
+}
+
+/// Feature service became idle or completed after finite input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeatureServiceIdle {
+    /// Idle / completed timestamp.
+    pub timestamp: Timestamp,
+    /// Whether finite input completed.
+    pub completed: bool,
+}
+
+/// Feature service stopped cleanly or after cancel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeatureServiceStopped {
+    /// Stop timestamp.
+    pub timestamp: Timestamp,
+}
+
+/// Perception service started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerceptionServiceStarted {
+    /// Start timestamp.
+    pub timestamp: Timestamp,
+    /// Active observation profile identity.
+    pub profile_id: String,
+    /// Active observation profile version.
+    pub profile_version: u32,
+}
+
+/// A channel-change observation was created (metadata only).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelChangeObserved {
+    /// Observation identity.
+    pub observation_id: u64,
+    /// Source sensor identifier.
+    pub sensor_id: SensorId,
+    /// Source feature-vector identity.
+    pub feature_vector_id: u64,
+    /// Inclusive first sequence.
+    pub first_sequence: u64,
+    /// Inclusive last sequence.
+    pub last_sequence: u64,
+    /// Observation state label (`stable`, `changing`, `highly_changing`, `indeterminate`).
+    pub state: String,
+    /// Heuristic channel-change activity score (not a probability).
+    pub activity_score: f64,
+    /// Distance from the nearest classification threshold.
+    pub threshold_margin: f64,
+    /// Observation profile identity.
+    pub profile_id: String,
+    /// Observation profile version.
+    pub profile_version: u32,
+    /// Warning count retained on the observation.
+    pub warning_count: u32,
+    /// Creation timestamp.
+    pub created_at: Timestamp,
+}
+
+/// Machine-readable perception / observation failure codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ObservationFailureCode {
+    /// Feature schema incompatible with the observation profile.
+    IncompatibleFeatureSchema,
+    /// Required features unavailable.
+    MissingFeatures,
+    /// Invalid observation profile.
+    InvalidProfile,
+    /// Non-finite score or inputs.
+    NonFinite,
+    /// Output validation failure.
+    OutputValidation,
+    /// Service-level failure.
+    ServiceFailure,
+}
+
+impl ObservationFailureCode {
+    /// Stable wire label.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::IncompatibleFeatureSchema => "incompatible_feature_schema",
+            Self::MissingFeatures => "missing_features",
+            Self::InvalidProfile => "invalid_profile",
+            Self::NonFinite => "non_finite",
+            Self::OutputValidation => "output_validation",
+            Self::ServiceFailure => "service_failure",
+        }
+    }
+}
+
+/// Observation creation failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservationFailed {
+    /// Feature-vector identity when available.
+    pub feature_vector_id: Option<u64>,
+    /// Source sensor identifier when available.
+    pub sensor_id: Option<SensorId>,
+    /// Inclusive first sequence when available.
+    pub first_sequence: Option<u64>,
+    /// Inclusive last sequence when available.
+    pub last_sequence: Option<u64>,
+    /// Failure timestamp.
+    pub timestamp: Timestamp,
+    /// Typed failure code.
+    pub code: ObservationFailureCode,
+    /// Concise operator-safe message.
+    pub message: String,
+}
+
+/// Perception service became idle or completed after finite input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PerceptionServiceIdle {
+    /// Idle / completed timestamp.
+    pub timestamp: Timestamp,
+    /// Whether finite input completed.
+    pub completed: bool,
+}
+
+/// Perception service stopped cleanly or after cancel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PerceptionServiceStopped {
+    /// Stop timestamp.
+    pub timestamp: Timestamp,
+}
+
 /// A frame was received from a sensor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameReceived {
@@ -546,6 +782,26 @@ pub enum Event {
     DspServiceIdle(DspServiceIdle),
     /// DSP service stopped.
     DspServiceStopped(DspServiceStopped),
+    /// Feature extraction service started.
+    FeatureServiceStarted(FeatureServiceStarted),
+    /// A feature vector was produced (metadata only).
+    FeatureVectorProduced(FeatureVectorProduced),
+    /// Feature extraction failed.
+    FeatureExtractionFailed(FeatureExtractionFailed),
+    /// Feature service became idle or completed.
+    FeatureServiceIdle(FeatureServiceIdle),
+    /// Feature service stopped.
+    FeatureServiceStopped(FeatureServiceStopped),
+    /// Perception service started.
+    PerceptionServiceStarted(PerceptionServiceStarted),
+    /// A channel-change observation was created (metadata only).
+    ChannelChangeObserved(ChannelChangeObserved),
+    /// Observation creation failed.
+    ObservationFailed(ObservationFailed),
+    /// Perception service became idle or completed.
+    PerceptionServiceIdle(PerceptionServiceIdle),
+    /// Perception service stopped.
+    PerceptionServiceStopped(PerceptionServiceStopped),
     /// An observation was recorded.
     ObservationRecorded(ObservationRecorded),
     /// An entity was added or updated.
@@ -583,6 +839,16 @@ impl Event {
             Self::DspProcessingFailed(event) => event.timestamp,
             Self::DspServiceIdle(event) => event.timestamp,
             Self::DspServiceStopped(event) => event.timestamp,
+            Self::FeatureServiceStarted(event) => event.timestamp,
+            Self::FeatureVectorProduced(event) => event.extracted_at,
+            Self::FeatureExtractionFailed(event) => event.timestamp,
+            Self::FeatureServiceIdle(event) => event.timestamp,
+            Self::FeatureServiceStopped(event) => event.timestamp,
+            Self::PerceptionServiceStarted(event) => event.timestamp,
+            Self::ChannelChangeObserved(event) => event.created_at,
+            Self::ObservationFailed(event) => event.timestamp,
+            Self::PerceptionServiceIdle(event) => event.timestamp,
+            Self::PerceptionServiceStopped(event) => event.timestamp,
             Self::ObservationRecorded(event) => event.observation.timestamp,
             Self::EntityUpserted(event) => event.entity.last_updated,
             Self::EntityRemoved(event) => event.timestamp,

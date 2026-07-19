@@ -63,6 +63,10 @@ pub struct DspWindowResult {
     pub dsp_profile_id: String,
     /// DSP profile version.
     pub dsp_profile_version: u32,
+    /// Calibration profile identity shared by the source window.
+    pub calibration_profile_id: String,
+    /// Calibration profile version shared by the source window.
+    pub calibration_profile_version: u32,
     /// Active kernel backend identifier (`rust` or `cpp`).
     pub backend_id: String,
     /// Backend implementation version.
